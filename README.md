@@ -1,2 +1,2 @@
 # VSMCG
-Genshin Impact
+玩原神玩的
