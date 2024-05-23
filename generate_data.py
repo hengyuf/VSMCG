@@ -39,3 +39,4 @@ class Data_generator:
     
 #DG = Data_generator(0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5)
 #print(DG.gen_data_full(5, 5))    
+#Test texts
