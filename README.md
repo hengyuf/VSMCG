@@ -1,0 +1,2 @@
+# VSMCG
+Genshin Impact
