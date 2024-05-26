@@ -54,9 +54,6 @@ class EM:
         sampler = TEST_SAMPLER(self.T, params)
         samples, weights=sampler.sample(n, self.r)
         return weights,samples.T
-    def load_data(self):
-        DG = Data_generator(0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5)
-        self.r=torch.tensor(DG.gen_data(1, self.T))
     def upd_param(self,lr=0.01):
         with torch.no_grad():
             for param in self.parameters:
