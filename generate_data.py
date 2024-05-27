@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.stats import t, expon, norm
 
 class Data_generator:
     def __init__(self, _alpha_r=0, _beta_r=1, _d=1, _alpha_u=0, _beta_u=1, _gamma=1, _theta=0, __lambda=1):
@@ -16,7 +17,7 @@ class Data_generator:
         eps=np.zeros(n)
         u=np.zeros(n)
         for i in range(T):
-            u = self.alpha_u+self.beta_u*u+self.gamma*eps**2+self.theta*np.where(eps<0,eps**2,0)+np.random.exponential(scale=1/self._lambda,size=n)
+            u = self.alpha_u+self.beta_u*u+self.gamma*eps**2+self.theta*np.where(eps<0,eps**2,0)+norm.rvs(scale=0.5,size=n)
             eps=np.random.standard_t(df=self.d, size=n)*np.sqrt(u)
             r[i]=self.alpha_r+self.beta_r*u+eps
         return r
@@ -28,7 +29,7 @@ class Data_generator:
         u=np.zeros(n)
         eps=np.zeros(n)
         for i in range(T):
-            u = self.alpha_u+self.beta_u*u+self.gamma*eps**2+self.theta*np.where(eps<0,eps**2,0)+np.random.exponential(scale=1/self._lambda,size=n)
+            u = self.alpha_u+self.beta_u*u+self.gamma*eps**2+self.theta*np.where(eps<0,eps**2,0)+norm.rvs(scale=0.5,size=n)
             eps=np.random.standard_t(df=self.d, size=n)*np.sqrt(u)
             u_list[i]=u
             eps_list[i]=eps
@@ -36,7 +37,7 @@ class Data_generator:
         return r, u_list, eps_list
 
 if __name__=='__main__':
-    DG = Data_generator(0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5)
+    DG = Data_generator(0.2, 0.2, 6.0, 2, 0.4, 0.1, 0.02, 2.5)
     np.save('r.npy',DG.gen_data(1, 2))
     
     

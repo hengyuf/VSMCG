@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from torch.distributions import StudentT, Exponential
+from torch.distributions import StudentT, Exponential, Normal
 from sampler import TEST_SAMPLER
 from tqdm import tqdm
 
@@ -56,8 +56,8 @@ class EM:
         self.d = torch.tensor(_d, dtype=torch.float64, requires_grad=True)
         # self.parameters=[self.alpha_r, self.beta_r, self.alpha_u, self.beta_u, self.gamma, self.theta, self._lambda, self.d]
         # self.names=["alpha_r", "beta_r", "alpha_u", "beta_u", "gamma", "theta", "_lambda", "d"]
-        self.parameters=[self.alpha_r, self.beta_r, self.alpha_u, self.beta_u, self.gamma, self.theta, self._lambda]
-        self.names=["alpha_r", "beta_r", "alpha_u", "beta_u", "gamma", "theta", "_lambda"]
+        self.parameters=[self.alpha_r, self.beta_r]
+        self.names=["alpha_r", "beta_r"]
         self.T=T
         self.r=np.load(rfilename)
         self.r=torch.tensor(self.r).reshape(1,-1)
@@ -80,28 +80,37 @@ class EM:
         nu=torch.sqrt(self.beta_r/(self.r-epsilon-self.alpha_r))*epsilon
         eta=(self.r-epsilon-self.alpha_r)/self.beta_r-w
 
+        if torch.isnan(nu).int().sum()+torch.isnan(eta).int().sum():
+            print("NaN encountered, total NaNs:",torch.isnan(nu).int().sum()+torch.isnan(eta).int().sum())
+            self.state_EM()
+            nu=torch.where(torch.isnan(nu),0,nu)
+            eta=torch.where(torch.isnan(eta),0,eta)
+            
+        #nu=torch.where(torch.isnan(nu),1e8,nu)
+
         #eta=torch.where(torch.isnan(eta),1e5,eta)
         #eta=torch.where(eta<0,1e4,eta)
-        eta=torch.maximum(torch.zeros_like(eta),eta)+1e-8
+        #eta=torch.maximum(torch.zeros_like(eta),eta)+1e-8
         #print(eta)
-        if eta.min()<0:
-            print("eta<0",(eta<0).int().sum(dim=0))
-        assert eta.min()>=0 #eta should follow exponential distribution
+        # if eta.min()<0:
+        #     print("eta<0",(eta<0).int().sum(dim=0))
+        #assert eta.min()>=0 #eta should follow exponential distribution
 
         ''' Calculate each component of the log-likelihood'''
         t_distr=StudentT(self.d)
-        exp_distr=Exponential(self._lambda) #remains to be checked: lambda or 1/lambda
+        exp_distr=Normal(loc=0,scale=0.5) #remains to be checked: lambda or 1/lambda
         
         #nu=torch.where(torch.isnan(nu),1e5,nu)
         #nu=(torch.abs(nu)<1e10)*nu+(torch.abs(nu)>=1e10)*1e10
-        try:
-            logp_t=t_distr.log_prob(nu)
-        except:
-            print("error encountered:",nu.min(),nu.max())
-            logp_t=torch.ones_like(nu)*(-100000)
-        logp_exp=exp_distr.log_prob(eta)
-        log_joint=torch.sum(logp_t+logp_exp -0.5*(torch.log(self.beta_r)+torch.log(self.r-epsilon-self.alpha_r)), dim=-1)+prior
+        logp_t=t_distr.log_prob(nu)
 
+
+        logp_exp=exp_distr.log_prob(eta)
+        
+        log_joint=torch.sum(logp_t+logp_exp -0.5*(torch.log(self.beta_r)+torch.log(self.r-epsilon-self.alpha_r)), dim=-1)+prior
+        if torch.isnan(log_joint).int().sum():
+            print("joint probability meets NaNs, counts",torch.isnan(log_joint).int().sum())
+            log_joint=torch.where(torch.isnan(log_joint),-1e6,log_joint)
 
         return log_joint
     
@@ -136,14 +145,15 @@ class EM:
 
         ''' Calculate each component of the log-likelihood'''
         t_distr=StudentT(self.d)
-        exp_distr=Exponential(self._lambda) #remains to be checked: lambda or 1/lambda
+        exp_distr=Normal(loc=0,scale=0.5) #remains to be checked: lambda or 1/lambda
         
         #nu=torch.where(torch.isnan(nu),1e5,nu)
         #nu=(torch.abs(nu)<1e10)*nu+(torch.abs(nu)>=1e10)*1e10
         try:
             logp_t=t_distr.log_prob(nu)
         except:
-            print("error encountered:",nu.min(),nu.max())
+            print("error encountered in computing the truth likelihood:",nu.min(),nu.max())
+            self.state_EM()
             logp_t=torch.ones_like(nu)*(-100000)
         logp_exp=exp_distr.log_prob(eta)
         #print("logp_t:",logp_t)
@@ -165,10 +175,16 @@ class EM:
         samples, weights=sampler.sample(n, np.array(self.r.T),exp_scale=1/self._lambda.item(),resample_thre=0.8)
         weights,samples=torch.tensor(weights),torch.tensor(samples)
         '''Check sample quality'''
-        if torch.isnan(samples).int().sum()+torch.isnan(weights).int().sum():
-            print("nan encountered in sampling")
+        if torch.max(torch.abs(samples))>1e5:
+            print("overflow encountered:checking samples and weights:")
             print("samples:",samples)
             print("weights:",weights)
+            self.state_EM()
+        if torch.isnan(weights).int().sum()+torch.isnan(samples).int().sum():
+            print("NaN encountered:checking samples and weights:")
+            print("samples:",samples)
+            print("weights:",weights)
+            self.state_EM()
 
 
 
@@ -192,18 +208,18 @@ class EM:
 
 
         
-        optimizer =torch.optim.Adam(self.parameters, lr=0.001, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.001, amsgrad=False)
+        optimizer =torch.optim.Adam(self.parameters, lr=0.0001, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.001, amsgrad=False)
         for _ in tqdm(range(num_steps)):
             
-            n=50000
+            n=100000
             weights,epsilon=self.call_sampler(n)
             #print(_)
-            if _ % 2==1:
+            if _ % 5==1:
                 print(f"------STEP {_}---------")
 
                 lower=np.min(np.array(epsilon),axis=0).reshape(-1)
                 upper=np.max(np.array(epsilon),axis=0).reshape(-1)
-                print("Truth Likelihood:",self.compute_truth_likelihood(n=1000000,lower=lower-100,upper=upper+100))
+                print("Truth Likelihood:",self.compute_truth_likelihood(n=1000000,lower=lower-10,upper=upper+10))
                 print("range of eps:",lower,upper)
                 self.state_EM()
                 
@@ -226,8 +242,8 @@ class EM:
 
     
     
-
-#EM_sampler=EM(10,0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5,rfilename="./r.npy")
-EM_sampler=EM(2,0.1, 0.1, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5,rfilename="./r.npy")
-EM_sampler.optimize(num_steps=20)
-#print(EM_sampler.compute_truth_likelihood(n=1000000,lower=-5*np.ones(2),upper=5*np.ones(2)))
+if __name__=="__main__":
+    #EM_sampler=EM(10,0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5,rfilename="./r.npy")
+    EM_sampler=EM(2,0.2, 0.2, 6.0, 2, 0.4, 0.1, 0.02, 2.5,rfilename="./r.npy")
+    EM_sampler.optimize(num_steps=200)
+    #print(EM_sampler.compute_truth_likelihood(n=1000000,lower=-5*np.ones(2),upper=5*np.ones(2)))
