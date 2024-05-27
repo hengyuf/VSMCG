@@ -55,12 +55,12 @@ class TEST_SAMPLER:
             
             ESS = 1/np.sum(np.power(weights, 2))
             self.ESS_list.append(ESS)
-            print(f"step {i} ESS:{ESS}")
+            #print(f"step {i} ESS:{ESS}")
             if ESS<0.2 *sample_num:
                 samples[:,i] = self.resample(samples[:,i], weights)
                 weights = np.ones(sample_num)
                 log_weights=np.zeros(sample_num)
-                print("Resampled")
+                #print("Resampled")
 
 
         return samples, weights
@@ -68,7 +68,8 @@ class TEST_SAMPLER:
     def resample(self, samples, weights):
         index = np.random.choice(list(range(len(weights))), p=weights, size=(len(weights)))
         return samples[index]
-r=np.load("r.npy")
+r=np.load("Bayes_temp/r.npy")
 params=(0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5)
-sampler=TEST_SAMPLER(100,params)
+sampler=TEST_SAMPLER(5,params)
 samples,weights=sampler.sample(1000,r)
+print(r.shape,samples.shape,weights.shape)

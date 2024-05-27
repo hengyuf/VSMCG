@@ -34,7 +34,10 @@ class Data_generator:
             eps_list[i]=eps
             r[i]=self.alpha_r+self.beta_r*u+eps
         return r, u_list, eps_list
-    
+
+if __name__=='__main__':
+    DG = Data_generator(0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5)
+    np.save('r.npy',DG.gen_data(1, 5))
     
     
 #DG = Data_generator(0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5)
