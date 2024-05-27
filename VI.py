@@ -10,14 +10,9 @@ import torch.distributions as tdist
 #input[:,2]: beta_r
 
 #Model output: (n,1) tensor of epsilon_t
-def log_likelihood_update(epsilon,r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda):
-    ''' Compute log joint likelihood of l=log p(eps_t,r_t|eps_{t-1},r_{t-1})'''
-    # Input:  epsilon  (n,), epsilon_past  (n,), r (1,), r_past (1,)
-    # Output: log_prob (n,)
+def log_likelihood_update(epsilon, r, epsilon_past, r_past, alpha_r, beta_r, d, alpha_u, beta_u, gamma, theta, _lambda):
+    prior = torch.tensor(0.0)
 
-    prior = 0  # do we need prior on r_0, eps_0?
-
-    ''' Calculate u, w, nu and eta'''
     u_past = (r_past - epsilon_past - alpha_r) / beta_r
 
     w = alpha_u + beta_u * u_past + (gamma + theta * (epsilon_past < 0)) * (epsilon_past ** 2)
@@ -27,8 +22,8 @@ def log_likelihood_update(epsilon,r,epsilon_past,r_past,alpha_r, beta_r, d, alph
     eta = (r - epsilon - alpha_r) / beta_r - w
     eta = torch.where(torch.isnan(eta), torch.tensor(1e6), eta)
 
-    logp_exp = tdist.Normal(0, _lambda).log_prob(eta)
-    logp_t = tdist.StudentT(d).log_prob(nu)
+    logp_exp = torch.distributions.Normal(0, 0.5).log_prob(eta)
+    logp_t = torch.distributions.StudentT(d, 0, 1).log_prob(nu)
 
     log_joint = logp_exp + logp_t - 0.5 * (torch.log(beta_r) + torch.log(r - epsilon - alpha_r)) + prior
 
@@ -69,7 +64,7 @@ epsilon_past = torch.randn(N, )
 r_past = torch.randn(N, )
 alpha_r = torch.randn(N, )
 beta_r = torch.randn(N, )
-d = torch.randn(N, )
+d = 6*torch.ones(N, )
 alpha_u = torch.randn(N, )
 beta_u = torch.randn(N, )
 gamma = torch.randn(N, )
