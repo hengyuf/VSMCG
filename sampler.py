@@ -2,13 +2,12 @@ import numpy as np
 from scipy.stats import t, expon
 class TEST_SAMPLER:
     """test sampler"""
-    samples = []
+    ESS_list = []
+    sample_num = 1
     def __init__(self, T, params):
         self.alpha_r, self.beta_r, self.d, self.alpha_u, self.beta_u,self.gamma, self.theta, self._lambda = params
         self.params = params
         self.T = T 
-
-
 
     def log_likelihood_update(self,epsilon,r,epsilon_past,r_past):
         ''' Compute log joint likelihood of l=log p(eps_t,r_t|eps_{t-1},r_{t-1})'''
@@ -35,10 +34,10 @@ class TEST_SAMPLER:
         #print(log_joint)
         return log_joint
         
-    def sample(self, sample_num:int, r):
-        self.ESS_list=[]
-
-
+    def sample(self, sample_num:int, r, exp_scale=1, resample_thre=0.2):
+        self.ESS_list = []
+        self.sample_num = sample_num
+        
         samples = np.zeros((sample_num,self.T))
         log_weights = np.ones(sample_num)
         eps=np.zeros(sample_num)
@@ -46,8 +45,8 @@ class TEST_SAMPLER:
         for i in range(self.T): 
             rr=r[i]
             eps_past=eps.copy()
-            eps=rr-self.alpha_r-np.random.exponential(scale=0.5,size=sample_num) #a simple policy
-            log_weights += self.log_likelihood_update(eps,rr,eps_past,r_past)-expon.logpdf(rr- self.alpha_r - eps, scale=0.5)
+            eps = self.policy(eps_past, rr, r_past, exp_scale)
+            log_weights += self.log_likelihood_update(eps,rr,eps_past,r_past)-self.log_policy_density(eps, eps_past, rr, r_past, exp_scale)
             r_past=rr
             samples[:,i]=eps
             weights=np.exp(log_weights)
@@ -55,19 +54,34 @@ class TEST_SAMPLER:
             
             ESS = 1/np.sum(np.power(weights, 2))
             self.ESS_list.append(ESS)
-            #print(f"step {i} ESS:{ESS}")
-            if ESS<0.2 *sample_num:
+            if ESS < resample_thre*sample_num:
                 samples[:,i] = self.resample(samples[:,i], weights)
                 weights = np.ones(sample_num)
                 log_weights=np.zeros(sample_num)
-                #print("Resampled")
-
-
         return samples, weights
+    
+    def plot_ESS(self, y_high=0, title=""):
+        if y_high == 0:
+            y_high = self.sample_num
+        plt.plot(range(self.T), self.ESS_list)
+        plt.ylim(0, y_high)
+        plt.xlim(0, self.T)
+        plt.ylabel("ESS")
+        if title != "":
+            plt.title(title)
+        plt.show()
+        plt.clf()
     
     def resample(self, samples, weights):
         index = np.random.choice(list(range(len(weights))), p=weights, size=(len(weights)))
         return samples[index]
+    
+    def policy(self, et1:np.array, rt, rt1, exp_scale):
+        return rt-self.alpha_r-np.random.exponential(scale=exp_scale,size=self.sample_num) #a simple policy
+    
+    def log_policy_density(self, et:np.array, et1:np.array, rt, rt1, exp_scale):
+        return expon.logpdf(rt- self.alpha_r - et, scale=exp_scale)
+
 r=np.load("Bayes_temp/r.npy")
 params=(0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5)
 sampler=TEST_SAMPLER(5,params)
