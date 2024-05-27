@@ -6,6 +6,7 @@ class TEST_SAMPLER:
     sample_num = 1
     def __init__(self, T, params):
         self.alpha_r, self.beta_r, self.d, self.alpha_u, self.beta_u,self.gamma, self.theta, self._lambda = params
+        # print(params)
         self.params = params
         self.T = T 
 
@@ -24,8 +25,12 @@ class TEST_SAMPLER:
 
         nu=np.sqrt(self.beta_r/(r-epsilon-self.alpha_r))*epsilon
         eta=(r-epsilon-self.alpha_r)/self.beta_r-w
+        #eta=np.maximum(eta,1e-7)
         #print(f"eps:{epsilon[:10]}\n eps_past:{epsilon_past[:10]}\n r:{r} r_past:{r_past} etamin:{eta.min()}\n w:{w[:10]}, nu:{nu[:10]}\n eta:{eta[:10]}\n")
-        #assert eta.min()>0 #eta should follow exponential distribution
+        #print(eta.min())
+        #eta=(eta>=0)*eta+(eta<=0)*1e-7
+        assert eta.min()>=0 #eta should follow exponential distribution
+
         logp_exp=expon.logpdf(eta, scale=1/self._lambda)
         logp_t=t.logpdf(nu,self.d)
 
@@ -34,7 +39,7 @@ class TEST_SAMPLER:
         #print(log_joint)
         return log_joint
         
-    def sample(self, sample_num:int, r, exp_scale=1, resample_thre=0.2):
+    def sample(self, sample_num:int, r, exp_scale=1, resample_thre=0.5):
         self.ESS_list = []
         self.sample_num = sample_num
         
@@ -45,8 +50,12 @@ class TEST_SAMPLER:
         for i in range(self.T): 
             rr=r[i]
             eps_past=eps.copy()
-            eps = self.policy(eps_past, rr, r_past, exp_scale)
-            log_weights += self.log_likelihood_update(eps,rr,eps_past,r_past)-self.log_policy_density(eps, eps_past, rr, r_past, exp_scale)
+            u_past= (r_past-eps_past-self.alpha_r)/self.beta_r
+            w=self.alpha_u+self.beta_u*u_past+(self.gamma+self.theta*(eps_past<0))*(eps_past**2)
+
+
+            eps = self.policy(eps_past, rr, w, exp_scale)
+            log_weights += self.log_likelihood_update(eps,rr,eps_past,r_past)-self.log_policy_density(eps, rr, w, exp_scale)
             r_past=rr
             samples[:,i]=eps
             weights=np.exp(log_weights)
@@ -55,8 +64,8 @@ class TEST_SAMPLER:
             ESS = 1/np.sum(np.power(weights, 2))
             self.ESS_list.append(ESS)
             if ESS < resample_thre*sample_num:
-                samples[:,i] = self.resample(samples[:,i], weights)
-                weights = np.ones(sample_num)
+                samples[:,:i] = self.resample(samples[:,:i], weights)
+                weights = np.ones(sample_num)/sample_num
                 log_weights=np.zeros(sample_num)
         return samples, weights
     
@@ -76,15 +85,17 @@ class TEST_SAMPLER:
         index = np.random.choice(list(range(len(weights))), p=weights, size=(len(weights)))
         return samples[index]
     
-    def policy(self, et1:np.array, rt, rt1, exp_scale):
-        return rt-self.alpha_r-np.random.exponential(scale=exp_scale,size=self.sample_num) #a simple policy
-    
-    def log_policy_density(self, et:np.array, et1:np.array, rt, rt1, exp_scale):
-        return expon.logpdf(rt- self.alpha_r - et, scale=exp_scale)
+    def policy(self, eps_past, rr, w, exp_scale):
 
-r=np.load("Bayes_temp/r.npy")
-params=(0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5)
-sampler=TEST_SAMPLER(5,params)
-samples,weights=sampler.sample(1000,r,1)
-sampler.plot_ESS()
-print(r.shape,samples.shape,weights.shape)
+        return rr-self.alpha_r-self.beta_r*w-self.beta_r*np.random.exponential(scale=exp_scale,size=self.sample_num) #a simple policy
+    
+    def log_policy_density(self, eps, rr, w, exp_scale):
+        return expon.logpdf((rr-self.alpha_r-self.beta_r*w-eps)/self.beta_r, scale=exp_scale)
+
+if __name__=="__main__":
+    r=np.load("Bayes_temp/r.npy")
+    params=(0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5)
+    sampler=TEST_SAMPLER(5,params)
+    samples,weights=sampler.sample(1000,r,1)
+    sampler.plot_ESS()
+    print(r.shape,samples.shape,weights.shape)
