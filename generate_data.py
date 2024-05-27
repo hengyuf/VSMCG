@@ -37,7 +37,7 @@ class Data_generator:
 
 if __name__=='__main__':
     DG = Data_generator(0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5)
-    np.save('r.npy',DG.gen_data(1, 5))
+    np.save('r.npy',DG.gen_data(1, 2))
     
     
 #DG = Data_generator(0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5)
