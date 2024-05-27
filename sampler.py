@@ -24,11 +24,14 @@ class TEST_SAMPLER:
         w=self.alpha_u+self.beta_u*u_past+(self.gamma+self.theta*(epsilon_past<0))*(epsilon_past**2)
 
         nu=np.sqrt(self.beta_r/(r-epsilon-self.alpha_r))*epsilon
+        nu=np.where(np.isnan(nu),1e10,nu)
         eta=(r-epsilon-self.alpha_r)/self.beta_r-w
         #eta=np.maximum(eta,1e-7)
         #print(f"eps:{epsilon[:10]}\n eps_past:{epsilon_past[:10]}\n r:{r} r_past:{r_past} etamin:{eta.min()}\n w:{w[:10]}, nu:{nu[:10]}\n eta:{eta[:10]}\n")
         #print(eta.min())
-        #eta=(eta>=0)*eta+(eta<=0)*1e-7
+        eta=np.where(np.isnan(eta),1e6,eta)
+        eta=np.where(eta<0,1e8,eta)
+        #eta=(eta>=0)*eta+(eta<=0)*1e-6
         assert eta.min()>=0 #eta should follow exponential distribution
 
         logp_exp=expon.logpdf(eta, scale=1/self._lambda)
@@ -36,6 +39,7 @@ class TEST_SAMPLER:
 
 
         log_joint=logp_exp+logp_t -0.5*(np.log(self.beta_r)+np.log(r-epsilon-self.alpha_r))+prior
+        log_joint=np.where(np.isnan(log_joint),-1e10,log_joint)
         #print(log_joint)
         return log_joint
         
@@ -52,10 +56,16 @@ class TEST_SAMPLER:
             eps_past=eps.copy()
             u_past= (r_past-eps_past-self.alpha_r)/self.beta_r
             w=self.alpha_u+self.beta_u*u_past+(self.gamma+self.theta*(eps_past<0))*(eps_past**2)
+            w=(np.abs(w)<100)*w+(np.abs(w)>=100)*100
+
 
 
             eps = self.policy(eps_past, rr, w, exp_scale)
             log_weights += self.log_likelihood_update(eps,rr,eps_past,r_past)-self.log_policy_density(eps, rr, w, exp_scale)
+            if np.max(np.abs(eps))>1e10:
+                print(f"overflow encountered in sampling the {i}-timestep, maxw:",np.max(np.abs(w)))
+                print(f"the maximum eps:{np.max(np.abs(eps))} its weights: {weights[np.argmax(np.abs(eps))]}")
+                print(f"log p:{self.log_likelihood_update(eps,rr,eps_past,r_past)} log q:{self.log_policy_density(eps, rr, w, exp_scale)}")
             r_past=rr
             samples[:,i]=eps
             weights=np.exp(log_weights)
@@ -63,10 +73,11 @@ class TEST_SAMPLER:
             
             ESS = 1/np.sum(np.power(weights, 2))
             self.ESS_list.append(ESS)
-            if ESS < resample_thre*sample_num:
+            if ESS < sample_num:
                 samples[:,:i] = self.resample(samples[:,:i], weights)
                 weights = np.ones(sample_num)/sample_num
                 log_weights=np.zeros(sample_num)
+                eps=samples[:,i]
         return samples, weights
     
     def plot_ESS(self, y_high=0, title=""):
