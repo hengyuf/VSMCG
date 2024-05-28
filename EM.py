@@ -56,8 +56,8 @@ class EM:
         self.d = torch.tensor(_d, dtype=torch.float64, requires_grad=True)
         # self.parameters=[self.alpha_r, self.beta_r, self.alpha_u, self.beta_u, self.gamma, self.theta, self._lambda, self.d]
         # self.names=["alpha_r", "beta_r", "alpha_u", "beta_u", "gamma", "theta", "_lambda", "d"]
-        self.parameters=[self.alpha_u]
-        self.names=["alpha_u"]
+        self.parameters=[self.alpha_r, self.alpha_u, self.beta_u, self.gamma, self.theta, self._lambda]
+        self.names=["alpha_r", "alpha_u", "beta_u", "gamma", "theta", "_lambda"]
         self.T=T
         self.r=np.load(rfilename)
         self.r=torch.tensor(self.r).reshape(1,-1)
@@ -197,15 +197,15 @@ class EM:
         return torch.log(torch.mean(torch.exp(normed)))
     def state_EM(self):
         for i,param in enumerate(self.parameters):
-            print(self.names[i],param.item(),param.grad.item())
+            print(self.names[i],param.item())
     def optimize(self,num_steps=10,n=100000,batch_size=128):
 
 
         
         
         for _ in tqdm(range(num_steps)):
-            optimizer =torch.optim.Adam(self.parameters, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.001, amsgrad=False)
-            scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=25, gamma=0.5)
+            optimizer =torch.optim.Adam(self.parameters, lr=5*1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.001, amsgrad=False)
+            scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=50, gamma=0.5)
             
             weights,epsilon=self.call_sampler(n)
             
@@ -223,18 +223,26 @@ class EM:
                 weights_batch=weights[batch_num*batch_size:(batch_num+1)*batch_size]
 
                 if torch.min(self.r-eps_batch-self.alpha_r)>-1e-5:
-                    likelihood=self.log_total(weights_batch,eps_batch)
                     optimizer.zero_grad()
+                    likelihood=self.log_total(weights_batch,eps_batch)
                     loss=-likelihood
                     loss.backward()
                     #self.upd_param(lr=2*1e-5,verbose=verbose)
                     optimizer.step()
                     scheduler.step()
                     update_count+=1
+                    
+                    with torch.no_grad():
+                        if self.alpha_r<0:
+                            self.alpha_r-=self.alpha_r
+                        if self.beta_r<0:
+                            self.beta_r-=self.beta_r+1e-2
+                        # self.alpha_r=torch.maximum(torch.zeros_like(self.alpha_r),self.alpha_r)
+                        # self.beta_r=torch.maximum(1e-2*torch.ones_like(self.beta_r),self.beta_r)
                 if torch.isnan(self.alpha_r).int():
                     print("NaN parameters after GD")
                     self.state_EM()
-                    return
+                    raise NotImplementedError
             if _ %5==1:
                 print(f"------STEP {_}---------")
 
@@ -254,5 +262,5 @@ class EM:
 if __name__=="__main__":
     #EM_sampler=EM(10,0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5,rfilename="./r.npy")
     EM_sampler=EM(2,3, 0.2, 6.0, 2, 0.4, 0.1, 0.02, 2.5,rfilename="./r.npy")
-    EM_sampler.optimize(num_steps=200,n=1024*1000,batch_size=8192)
+    EM_sampler.optimize(num_steps=30,n=1024*1000,batch_size=8192)
     #print(EM_sampler.compute_truth_likelihood(n=1000000,lower=-5*np.ones(2),upper=5*np.ones(2)))
