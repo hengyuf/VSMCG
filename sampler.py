@@ -55,13 +55,15 @@ class TEST_SAMPLER:
 
         w=self.alpha_u+self.beta_u*u_past+(self.gamma+self.theta*(epsilon_past<0))*(epsilon_past**2)
 
-        nu=np.sqrt(self.beta_r/(r-epsilon-self.alpha_r))*epsilon
-        nu=np.where(np.isnan(nu),1e10,nu)
-        eta=(r-epsilon-self.alpha_r)/self.beta_r-w
+        #print("min r-eps-alpha_r:",np.min(r-epsilon-self.alpha_r))
+
+        nu=np.sqrt(self.beta_r/(r-epsilon-self.alpha_r+1e-6))*epsilon
+        #nu=np.where(np.isnan(nu),1e10,nu)
+        eta=(r-epsilon-self.alpha_r+1e-6)/self.beta_r-w
         #eta=np.maximum(eta,1e-7)
         #print(f"eps:{epsilon[:10]}\n eps_past:{epsilon_past[:10]}\n r:{r} r_past:{r_past} etamin:{eta.min()}\n w:{w[:10]}, nu:{nu[:10]}\n eta:{eta[:10]}\n")
         #print(eta.min())
-        eta=np.where(np.isnan(eta),1e6,eta)
+        #eta=np.where(np.isnan(eta),1e6,eta)
         #eta=np.where(eta<0,1e8,eta)
         #eta=(eta>=0)*eta+(eta<=0)*1e-6
         #assert eta.min()>=0 #eta should follow exponential distribution
@@ -71,7 +73,7 @@ class TEST_SAMPLER:
         logp_t=t.logpdf(nu,self.d)
 
 
-        log_joint=logp_exp+logp_t -0.5*(np.log(self.beta_r)+np.log(r-epsilon-self.alpha_r))+prior
+        log_joint=logp_exp+logp_t -0.5*(np.log(self.beta_r)+np.log(r-epsilon-self.alpha_r+1e-6))+prior
         #log_joint=np.where(np.isnan(log_joint),-1e10,log_joint)
         #print(log_joint)
         return log_joint
@@ -81,7 +83,7 @@ class TEST_SAMPLER:
         self.sample_num = sample_num
         
         samples = np.zeros((sample_num,self.T))
-        log_weights = np.ones(sample_num)
+        log_weights = np.zeros(sample_num)
         eps=np.zeros(sample_num)
         r_past=self.alpha_r
         for i in range(self.T): 
@@ -92,8 +94,14 @@ class TEST_SAMPLER:
             u_past= (r_past-eps_past-self.alpha_r)/self.beta_r
             w=self.alpha_u+self.beta_u*u_past+(self.gamma+self.theta*(eps_past<0))*(eps_past**2)
             eps,log_density = self.policy(eps_past, rr, w, exp_scale,r_past)
+           
+
             # print(f"step{i}\n eps:{eps}\n eps_past:{eps_past} \n rr:{rr} w:{w} exp_scale:{exp_scale}\n")
             log_weights += self.log_likelihood_update(eps,rr,eps_past,r_past)-log_density          #self.log_policy_density(eps, rr, w, exp_scale,r_past)
+            if np.isnan(log_density).sum()+np.isnan(eps).sum() + np.isnan( log_weights).sum()>0:
+                print(f"NaN encountered in sampling steps{i}")
+                print(f"Parameters:{self.params}")
+
 
             
             r_past=rr
@@ -136,7 +144,7 @@ class TEST_SAMPLER:
         outputs = self.model(inputs).reshape(-1)
         assert torch.tensor(eps_past).shape[0]==outputs.shape[0]
         #outputs=torch.tensor(0.4).expand(inputs.shape[0],)
-        print(outputs)
+        #print(outputs)
         base=torch.distributions.Exponential(1).sample((inputs.shape[0],)).reshape(-1)
         sample=torch.tensor(rr)-torch.tensor(self.alpha_r)-base*outputs
         return sample.detach().numpy(),(torch.distributions.Exponential(1).log_prob(base)-torch.log(outputs)).detach().numpy()
@@ -161,10 +169,10 @@ class TEST_SAMPLER:
 
 if __name__=="__main__":
     r=np.load("./r.npy")
-    params=(0.2, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5)
-    sampler=TEST_SAMPLER(5,params)
+    params=(2.78928767198253, 0.2, 6.0, 2.0, 0.4, 0.1, 0.02, 2.5)
+    sampler=TEST_SAMPLER(2,params)
     samples,weights=sampler.sample(10000,r,exp_scale=0.4)
-    sampler.plot_ESS()
+   #sampler.plot_ESS()
     print(r.shape,samples.shape,weights.shape)
     print(samples)
-    #print(weights)
+    print(weights)

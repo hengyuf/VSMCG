@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from torch.distributions import StudentT, Exponential, Normal
-from sampler import TEST_SAMPLER
+from sampler import *
 from tqdm import tqdm
 
 import torch.optim as optim
@@ -56,8 +56,8 @@ class EM:
         self.d = torch.tensor(_d, dtype=torch.float64, requires_grad=True)
         # self.parameters=[self.alpha_r, self.beta_r, self.alpha_u, self.beta_u, self.gamma, self.theta, self._lambda, self.d]
         # self.names=["alpha_r", "beta_r", "alpha_u", "beta_u", "gamma", "theta", "_lambda", "d"]
-        self.parameters=[self.alpha_r, self.beta_r]
-        self.names=["alpha_r", "beta_r"]
+        self.parameters=[self.alpha_u]
+        self.names=["alpha_u"]
         self.T=T
         self.r=np.load(rfilename)
         self.r=torch.tensor(self.r).reshape(1,-1)
@@ -77,12 +77,13 @@ class EM:
         u_shift=torch.zeros_like(u) #u_{t-1}
         u_shift[:,1:]=u[:,:T-1]
         w=self.alpha_u+self.beta_u*u_shift+(self.gamma+self.theta*(epsilon_shift<0))*(epsilon_shift**2)
-        nu=torch.sqrt(self.beta_r/(self.r-epsilon-self.alpha_r))*epsilon
+
+        nu=torch.sqrt(self.beta_r/(self.r-epsilon-self.alpha_r+1e-6))*epsilon
         eta=(self.r-epsilon-self.alpha_r)/self.beta_r-w
 
         if torch.isnan(nu).int().sum()+torch.isnan(eta).int().sum():
-            print("NaN encountered, total NaNs:",torch.isnan(nu).int().sum()+torch.isnan(eta).int().sum())
-            self.state_EM()
+            #print("NaN encountered, total NaNs:",torch.isnan(nu).int().sum()+torch.isnan(eta).int().sum())
+            #self.state_EM()
             nu=torch.where(torch.isnan(nu),0,nu)
             eta=torch.where(torch.isnan(eta),0,eta)
             
@@ -109,7 +110,7 @@ class EM:
         
         log_joint=torch.sum(logp_t+logp_exp -0.5*(torch.log(self.beta_r)+torch.log(self.r-epsilon-self.alpha_r)), dim=-1)+prior
         if torch.isnan(log_joint).int().sum():
-            print("joint probability meets NaNs, counts",torch.isnan(log_joint).int().sum())
+            #print("joint probability meets NaNs, counts",torch.isnan(log_joint).int().sum())
             log_joint=torch.where(torch.isnan(log_joint),-1e6,log_joint)
 
         return log_joint
@@ -132,16 +133,9 @@ class EM:
         w=self.alpha_u+self.beta_u*u_shift+(self.gamma+self.theta*(epsilon_shift<0))*(epsilon_shift**2)
 
 
-        nu=torch.where(self.r-epsilon-self.alpha_r>=0,torch.sqrt(self.beta_r/(self.r-epsilon-self.alpha_r))*epsilon,1e8)  
+        nu=torch.where(self.r-epsilon-self.alpha_r>=0,torch.sqrt(self.beta_r/(self.r-epsilon-self.alpha_r+1e-6))*epsilon,1e8)  
         eta=(self.r-epsilon-self.alpha_r)/self.beta_r-w
 
-        #eta=torch.where(torch.isnan(eta),1e5,eta)
-        eta=torch.where(eta<0,1e8,eta)
-        #eta=torch.maximum(torch.zeros_like(eta),eta)
-        #print(eta)
-        if eta.min()<0:
-            print("eta<0",(eta<0).int().sum(dim=0))
-        assert eta.min()>=0 #eta should follow exponential distribution
 
         ''' Calculate each component of the log-likelihood'''
         t_distr=StudentT(self.d)
@@ -200,41 +194,56 @@ class EM:
         likelihood=self.singularlikelihood(epsilon)
         #print("Sing l",likelihood)
         normed=likelihood+torch.log(weights) #item for removing normalization from gradients
-        return torch.log(torch.sum(torch.exp(normed)))
+        return torch.log(torch.mean(torch.exp(normed)))
     def state_EM(self):
         for i,param in enumerate(self.parameters):
             print(self.names[i],param.item(),param.grad.item())
-    def optimize(self,num_steps=10,num_steps_hidden=100):
+    def optimize(self,num_steps=10,n=100000,batch_size=128):
 
 
         
-        optimizer =torch.optim.Adam(self.parameters, lr=0.0001, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.001, amsgrad=False)
+        
         for _ in tqdm(range(num_steps)):
+            optimizer =torch.optim.Adam(self.parameters, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.001, amsgrad=False)
+            scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=25, gamma=0.5)
             
-            n=100000
             weights,epsilon=self.call_sampler(n)
+            
+            batch_total_num=n//batch_size
             #print(_)
-            if _ % 5==1:
+            update_count=0
+            
+            for batch_num in range(batch_total_num):
+                verbose=False
+                if _ % 5==1 and batch_num %100==1:
+                    print(f"Innerstep:{batch_num} (fake)Likelihood:",likelihood.item())
+                    #self.state_EM()
+
+                eps_batch=epsilon[batch_num*batch_size:(batch_num+1)*batch_size]
+                weights_batch=weights[batch_num*batch_size:(batch_num+1)*batch_size]
+
+                if torch.min(self.r-eps_batch-self.alpha_r)>-1e-5:
+                    likelihood=self.log_total(weights_batch,eps_batch)
+                    optimizer.zero_grad()
+                    loss=-likelihood
+                    loss.backward()
+                    #self.upd_param(lr=2*1e-5,verbose=verbose)
+                    optimizer.step()
+                    scheduler.step()
+                    update_count+=1
+                if torch.isnan(self.alpha_r).int():
+                    print("NaN parameters after GD")
+                    self.state_EM()
+                    return
+            if _ %5==1:
                 print(f"------STEP {_}---------")
 
                 lower=np.min(np.array(epsilon),axis=0).reshape(-1)
                 upper=np.max(np.array(epsilon),axis=0).reshape(-1)
-                print("Truth Likelihood:",self.compute_truth_likelihood(n=1000000,lower=lower-10,upper=upper+10))
+                print("Truth Likelihood:",self.compute_truth_likelihood(n=1024**2,lower=lower-5,upper=upper+5))
                 print("range of eps:",lower,upper)
+                print(f"Update counts:{update_count} Batch_num:{batch_total_num}")
                 self.state_EM()
-                
-            
-            for __ in range(num_steps_hidden):
-                verbose=False
-                if _ % 10==1 and __ %50==1:
-                    print(f"Innerstep:{__} (fake)Likelihood:",likelihood.item())
-                    #self.state_EM()
-                likelihood=self.log_total(weights,epsilon)
-                optimizer.zero_grad()
-                loss=-likelihood
-                loss.backward()
-                #self.upd_param(lr=2*1e-5,verbose=verbose)
-                optimizer.step()
             
                 
     
@@ -244,6 +253,6 @@ class EM:
     
 if __name__=="__main__":
     #EM_sampler=EM(10,0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5,rfilename="./r.npy")
-    EM_sampler=EM(2,0.2, 0.2, 6.0, 2, 0.4, 0.1, 0.02, 2.5,rfilename="./r.npy")
-    EM_sampler.optimize(num_steps=200)
+    EM_sampler=EM(2,3, 0.2, 6.0, 2, 0.4, 0.1, 0.02, 2.5,rfilename="./r.npy")
+    EM_sampler.optimize(num_steps=200,n=1024*1000,batch_size=8192)
     #print(EM_sampler.compute_truth_likelihood(n=1000000,lower=-5*np.ones(2),upper=5*np.ones(2)))
