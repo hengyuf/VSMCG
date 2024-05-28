@@ -135,12 +135,17 @@ class TEST_SAMPLER:
                               torch.tensor(self.theta),torch.tensor(self._lambda))
         outputs = self.model(inputs).reshape(-1)
         assert torch.tensor(eps_past).shape[0]==outputs.shape[0]
-
+        #outputs=torch.tensor(0.4).expand(inputs.shape[0],)
+        print(outputs)
         base=torch.distributions.Exponential(1).sample((inputs.shape[0],)).reshape(-1)
         sample=torch.tensor(rr)-torch.tensor(self.alpha_r)-base*outputs
         return sample.detach().numpy(),(torch.distributions.Exponential(1).log_prob(base)-torch.log(outputs)).detach().numpy()
         #return rr-self.alpha_r-expon.rvs(scale=exp_scale,size=self.sample_num)
     #np.random.exponential(scale=exp_scale,size=self.sample_num) #a simple policy
+    
+    def policy_old(self, eps_past, rr, w, exp_scale,r_past):
+        eps=rr-self.alpha_r-expon.rvs(scale=exp_scale,size=self.sample_num)
+        return eps, expon.logpdf((rr-self.alpha_r-eps),scale=exp_scale)
     
     def log_policy_density(self, eps, rr, w, exp_scale,r_past):
         #Now combined in policy()
@@ -159,7 +164,7 @@ if __name__=="__main__":
     params=(0.2, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5)
     sampler=TEST_SAMPLER(5,params)
     samples,weights=sampler.sample(10000,r,exp_scale=0.4)
-    #sampler.plot_ESS()
+    sampler.plot_ESS()
     print(r.shape,samples.shape,weights.shape)
     print(samples)
     #print(weights)
