@@ -2,15 +2,45 @@ import numpy as np
 from scipy.stats import t, expon, norm
 import matplotlib.pyplot as plt
 import pdb
+import torch
+import torch.nn as nn
+
+def param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda):
+    #epsilon_past is of shape (n,) everying else scalers
+    n=epsilon_past.shape[0]
+    output=torch.zeros(n,3)
+    u_past=(r_past-alpha_r-epsilon_past)/beta_r
+    output[:,0]=alpha_u+beta_u*u_past+gamma*epsilon_past**2+theta*(epsilon_past<0)*epsilon_past**2
+    output[:,1]=r-alpha_r
+    output[:,2]=beta_r
+
+    return output
+
+class VIScaler(nn.Module):
+    def __init__(self, hidden_size=16):
+        super().__init__()
+        self.fc1 = nn.Linear(3, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, 1)
+    
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.fc2(x)
+        x=  1e-2+torch.sigmoid(x)
+        return x
+
 class TEST_SAMPLER:
     """test sampler"""
     ESS_list = []
     sample_num = 1
-    def __init__(self, T, params):
+    def __init__(self, T, params,path="VIScaler_best.pth"):
         self.alpha_r, self.beta_r, self.d, self.alpha_u, self.beta_u,self.gamma, self.theta, self._lambda = params
         # print(params)
         self.params = params
-        self.T = T 
+        self.T = T
+                
+        self.model=VIScaler(hidden_size=16)
+        self.model.load_state_dict(torch.load(path))
+        self.model.eval()
 
     def log_likelihood_update(self,epsilon,r,epsilon_past,r_past):
         ''' Compute log joint likelihood of l=log p(eps_t,r_t|eps_{t-1},r_{t-1})'''
@@ -61,9 +91,9 @@ class TEST_SAMPLER:
             eps_past=eps.copy()
             u_past= (r_past-eps_past-self.alpha_r)/self.beta_r
             w=self.alpha_u+self.beta_u*u_past+(self.gamma+self.theta*(eps_past<0))*(eps_past**2)
-            eps = self.policy(eps_past, rr, w, exp_scale)
+            eps,log_density = self.policy(eps_past, rr, w, exp_scale,r_past)
             # print(f"step{i}\n eps:{eps}\n eps_past:{eps_past} \n rr:{rr} w:{w} exp_scale:{exp_scale}\n")
-            log_weights += self.log_likelihood_update(eps,rr,eps_past,r_past)-self.log_policy_density(eps, rr, w, exp_scale)
+            log_weights += self.log_likelihood_update(eps,rr,eps_past,r_past)-log_density          #self.log_policy_density(eps, rr, w, exp_scale,r_past)
 
             
             r_past=rr
@@ -96,15 +126,26 @@ class TEST_SAMPLER:
         index = np.random.choice(list(range(len(weights))), p=weights, size=(len(weights)))
         return samples[index]
     
-    def policy(self, eps_past, rr, w, exp_scale):
+    def policy(self, eps_past, rr, w, exp_scale,r_past):
         # print("exponentials:",expon.rvs(scale=exp_scale,size=self.sample_num))
         # print("values:",rr,self.alpha_r,self.beta_r*w,self.beta_r*np.random.exponential(scale=exp_scale,size=self.sample_num))
         #print("generate eps:",rr-self.alpha_r-self.beta_r*w-self.beta_r*np.random.exponential(scale=exp_scale,size=self.sample_num))
+        inputs=param_to_input(torch.tensor(rr),torch.tensor(eps_past),torch.tensor(r_past),torch.tensor(self.alpha_r),torch.tensor(self.beta_r),
+                              torch.tensor(self.d),torch.tensor(self.alpha_u),torch.tensor(self.beta_u),torch.tensor(self.gamma),
+                              torch.tensor(self.theta),torch.tensor(self._lambda))
+        outputs = self.model(inputs).reshape(-1)
+        assert torch.tensor(eps_past).shape[0]==outputs.shape[0]
 
-        return rr-self.alpha_r-expon.rvs(scale=exp_scale,size=self.sample_num)
+        base=torch.distributions.Exponential(1).sample((inputs.shape[0],)).reshape(-1)
+        sample=torch.tensor(rr)-torch.tensor(self.alpha_r)-base*outputs
+        return sample.numpy(),(torch.distributions.Exponential(1).log_prob(base)-torch.log(outputs)).numpy()
+        #return rr-self.alpha_r-expon.rvs(scale=exp_scale,size=self.sample_num)
     #np.random.exponential(scale=exp_scale,size=self.sample_num) #a simple policy
     
-    def log_policy_density(self, eps, rr, w, exp_scale):
+    def log_policy_density(self, eps, rr, w, exp_scale,r_past):
+        #Now combined in policy()
+
+
         # print("exponential values:",(rr-self.alpha_r-self.beta_r*w-eps)/self.beta_r)
         # print("logpdf:",expon.logpdf((rr-self.alpha_r-self.beta_r*w-eps)/self.beta_r,scale=exp_scale))
         return expon.logpdf((rr-self.alpha_r-eps),scale=exp_scale)
