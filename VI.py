@@ -5,6 +5,14 @@ from torch.utils.data import DataLoader, TensorDataset
 import torch.distributions as tdist
 import matplotlib.pyplot as plt
 
+base_dist = tdist.Gamma(1.5,0.75)
+learning_rate = 3e-3
+num_epochs = 1000
+batch_size = 512
+N=16384
+hidden_size=16
+loss_tolerance=2048 #Gradually decay to 0.5*tolerance
+
 #Model input: (n,3) tensor with each column as follows:
 #input[:,0]: w_t
 #input[:,1]: r_t-alpha_r
@@ -48,37 +56,40 @@ class VIScaler(nn.Module):
     def __init__(self, hidden_size=16):
         super().__init__()
         self.fc1 = nn.Linear(3, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, 1)
+        self.fc21 = nn.Linear(hidden_size, 1)
+        self.fc22 = nn.Linear(hidden_size, 1)
+        self.fc23 = nn.Linear(hidden_size, 1)
     
     def forward(self, x):
         x = torch.relu(self.fc1(x))
-        x = self.fc2(x)
-        x=  1e-2+torch.sigmoid(x)
-        return x
+        x1 = self.fc21(x)
+        x2 = self.fc22(x)
+        x3 = self.fc23(x)
+        x1 = 1e-2+torch.sigmoid(x1)
+        x2 = 1e-4+0.4*torch.sigmoid(x2)
+        x3 = 1e-4+0.4*torch.sigmoid(x3)
+        return x1,x2,x3
 
-learning_rate = 1e-3
-num_epochs = 1000
-batch_size = 256
-N=16384
 
-model = VIScaler(hidden_size=16)
+
+model = VIScaler(hidden_size=hidden_size)
 model.train()
 
 scale=1
-gen_data=False
+gen_data=True
 if gen_data:
 
     r = torch.rand(N,)*scale-scale/2
     epsilon_past = torch.rand(N,)*scale-scale/2
     r_past = torch.rand(N,)*scale-scale/2
-    alpha_r = torch.rand(N,)*scale
-    beta_r = torch.rand(N,)*scale
+    alpha_r = 0*torch.ones(N, ) #torch.rand(N,)*scale
+    beta_r = 0.5*torch.ones(N, ) #torch.rand(N,)*scale
     d = 6*torch.ones(N, )
-    alpha_u =torch.rand(N,)*2*scale
-    beta_u = torch.rand(N,)*scale
-    gamma = torch.rand(N,)*scale
-    theta = torch.rand(N,)*scale
-    _lambda = torch.rand(N,)*scale
+    alpha_u =  0.5*torch.ones(N, ) #torch.rand(N,)*2*scale
+    beta_u = 0.2*torch.ones(N, )   #torch.rand(N,)*scale
+    gamma = 0*torch.ones(N, )   #torch.rand(N,)*scale
+    theta = 0*torch.ones(N, )   #torch.rand(N,)*scale
+    _lambda = 4*torch.ones(N, ) #torch.rand(N,)*scale
 
     Trainset = param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda)
     dataset = TensorDataset(Trainset,r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda)
@@ -88,7 +99,7 @@ else:
     dataloader=torch.load("./data.pt")
 
 optimizer = optim.Adam(model.parameters(), lr=learning_rate,betas=(0.9, 0.999), eps=1e-8, weight_decay=0.001,)
-scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=50, gamma=0.5)
+scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=50, gamma=0.7)
 loss_epoch=[]
 for epoch in range(num_epochs):
 
@@ -98,15 +109,20 @@ for epoch in range(num_epochs):
         optimizer.zero_grad()
         
 
-        outputs = model(batch_data).reshape(-1)
-        base=torch.distributions.Exponential(1).sample((batch_data.shape[0],)).reshape(-1)
-
-
-        logprob=log_likelihood_update(batch[1]-batch[4]-base*outputs,batch[1],batch[2],batch[3],batch[4],batch[5],batch[6],batch[7],batch[8],batch[9],batch[10],batch[11])
+        outputs,outputs2,outputs3 = model(batch_data)
+        outputs,outputs2,outputs3 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1)
+        base=base_dist.sample((batch_data.shape[0],)).reshape(-1)
         
-        loss=torch.mean(-base-torch.log(outputs)-logprob,dim=0)
+        modifiedbase=outputs*base+outputs2*base**2+outputs3*base**0.5
+        jacobian=outputs+2*base*outputs2+0.5*outputs3*base**(-0.5)
+
+        #modifiedbase=outputs*base
+        #jacobian=outputs
+        logprob=log_likelihood_update(batch[1]-batch[4]-modifiedbase,batch[1],batch[2],batch[3],batch[4],batch[5],batch[6],batch[7],batch[8],batch[9],batch[10],batch[11])
+        
+        loss=torch.mean(-base-torch.log(jacobian)-logprob,dim=0)
         #print(logprob.shape) #logq_prob-logp_prob
-        if loss.item()<512:
+        if loss.item()<loss_tolerance*(0.5+5/(epoch+10)):
             loss.backward()
             loss_list.append(loss.item())
             optimizer.step()
@@ -120,7 +136,7 @@ for epoch in range(num_epochs):
         plt.plot(loss_epoch)
         plt.savefig(f"./figs/Loss_test1_Epoch1-{epoch}.png")
         torch.save(model,f"VIScaler_test1_{epoch}.pth")
-    if epoch>100 and loss_epoch[-1]<= min(loss_epoch)+1e-4:
+    if epoch>50 and loss_epoch[-1]<= min(loss_epoch)+1e-4:
         torch.save(model,f"VIScaler_test1_{epoch}_loss_{loss_epoch[-1]}.pth")
     scheduler.step()
 
