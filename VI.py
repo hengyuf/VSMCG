@@ -10,8 +10,8 @@ learning_rate = 3e-3
 num_epochs = 1000
 batch_size = 512
 N=16384
-hidden_size=16
-loss_tolerance=2048 #Gradually decay to 0.5*tolerance
+hidden_size=32
+loss_tolerance=40000 #Gradually decay to 0.5*tolerance
 
 #Model input: (n,3) tensor with each column as follows:
 #input[:,0]: w_t
@@ -82,14 +82,14 @@ if gen_data:
     r = torch.rand(N,)*scale-scale/2
     epsilon_past = torch.rand(N,)*scale-scale/2
     r_past = torch.rand(N,)*scale-scale/2
-    alpha_r = 0*torch.ones(N, ) #torch.rand(N,)*scale
-    beta_r = 0.5*torch.ones(N, ) #torch.rand(N,)*scale
+    alpha_r = torch.rand(N,)*10*scale-5*scale#0*torch.ones(N, ) #torch.rand(N,)*scale#
+    beta_r = torch.rand(N,)*scale#0.5*torch.ones(N, ) #torch.rand(N,)*scale
     d = 6*torch.ones(N, )
-    alpha_u =  0.5*torch.ones(N, ) #torch.rand(N,)*2*scale
-    beta_u = 0.2*torch.ones(N, )   #torch.rand(N,)*scale
-    gamma = 0*torch.ones(N, )   #torch.rand(N,)*scale
-    theta = 0*torch.ones(N, )   #torch.rand(N,)*scale
-    _lambda = 4*torch.ones(N, ) #torch.rand(N,)*scale
+    alpha_u =  torch.rand(N,)*4*scale#0.5*torch.ones(N, ) #torch.rand(N,)*2*scale
+    beta_u = torch.rand(N,)*4*scale-scale*2#0.2*torch.ones(N, )   #torch.rand(N,)*scale
+    gamma = torch.rand(N,)*2*scale-scale#0*torch.ones(N, )   #torch.rand(N,)*scale
+    theta = torch.rand(N,)*2*scale-scale#0*torch.ones(N, )   #torch.rand(N,)*scale
+    _lambda = torch.rand(N,)*scale#4*torch.ones(N, ) #torch.rand(N,)*scale
 
     Trainset = param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda)
     dataset = TensorDataset(Trainset,r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda)
@@ -113,8 +113,8 @@ for epoch in range(num_epochs):
         outputs,outputs2,outputs3 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1)
         base=base_dist.sample((batch_data.shape[0],)).reshape(-1)
         
-        modifiedbase=outputs*base+outputs2*base**2+outputs3*base**0.5
-        jacobian=outputs+2*base*outputs2+0.5*outputs3*base**(-0.5)
+        modifiedbase=outputs*base+outputs2*base**1.5+outputs3*base**0.5
+        jacobian=outputs+1.5*base**0.5*outputs2+0.5*outputs3*base**(-0.5)
 
         #modifiedbase=outputs*base
         #jacobian=outputs

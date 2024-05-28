@@ -63,7 +63,7 @@ class TEST_SAMPLER:
 
         w=self.alpha_u+self.beta_u*u_past+(self.gamma+self.theta*(epsilon_past<0))*(epsilon_past**2)
 
-        nu=np.sqrt(self.beta_r/(r-epsilon-self.alpha_r))*epsilon
+        nu=np.sqrt(self.beta_r/(r-epsilon-self.alpha_r+1e-6))*epsilon
         nu=np.where(np.isnan(nu),1e10,nu)
         eta=(r-epsilon-self.alpha_r)/self.beta_r-w
         #eta=np.maximum(eta,1e-7)
@@ -145,10 +145,10 @@ class TEST_SAMPLER:
         outputs,outputs2,outputs3 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1)
         assert torch.tensor(eps_past).shape[0]==outputs.shape[0]
         #outputs=torch.tensor(0.4).expand(inputs.shape[0],)
-        #print(outputs)
         base=self.base_dist.sample((inputs.shape[0],)).reshape(-1)
-        modifiedbase=outputs*base+outputs2*base**2+outputs3*base**0.5
-        jacobian=outputs+2*base*outputs2+0.5*outputs3*base**(-0.5)
+        print(outputs2)
+        modifiedbase=outputs*base+outputs2*base**1.5+outputs3*base**0.5
+        jacobian=outputs+1.5*base**0.5*outputs2+0.5*outputs3*base**(-0.5)
         sample=torch.tensor(rr)-torch.tensor(self.alpha_r)-modifiedbase
         return sample.detach().numpy(),(self.base_dist.log_prob(base)-torch.log(jacobian)).detach().numpy()
         #return rr-self.alpha_r-expon.rvs(scale=exp_scale,size=self.sample_num)
@@ -171,10 +171,10 @@ class TEST_SAMPLER:
 
 
 if __name__=="__main__":
-    r=np.load("./data_(0, 0.5, 6, 0.5, 0.2, 0, 0, 4).npy")
-    r=r[0][:,0]
-    params=(0, 0.5, 6, 0.5, 0.2, 0, 0, 4)
-    sampler=TEST_SAMPLER(100,params,path='VIScaler_new_specialized.pth')
+    r=np.load("./r.npy")
+    print(r.shape)
+    params=(0.2, 0.2, 6.0, 1.0, 0.4, 0.1, 0.02, 2.5)
+    sampler=TEST_SAMPLER(20,params,path='VIScaler_new_1.5_currentbest.pth')
     samples,weights=sampler.sample(10000,r,exp_scale=0.4)
     sampler.plot_ESS()
     print(r.shape,samples.shape,weights.shape)
