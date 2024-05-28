@@ -39,7 +39,7 @@ class TEST_SAMPLER:
         self.T = T
                 
         self.model=VIScaler(hidden_size=16)
-        self.model.load_state_dict(torch.load(path))
+        self.model=torch.load(path)
         self.model.eval()
 
     def log_likelihood_update(self,epsilon,r,epsilon_past,r_past):
@@ -138,7 +138,7 @@ class TEST_SAMPLER:
 
         base=torch.distributions.Exponential(1).sample((inputs.shape[0],)).reshape(-1)
         sample=torch.tensor(rr)-torch.tensor(self.alpha_r)-base*outputs
-        return sample.numpy(),(torch.distributions.Exponential(1).log_prob(base)-torch.log(outputs)).numpy()
+        return sample.detach().numpy(),(torch.distributions.Exponential(1).log_prob(base)-torch.log(outputs)).detach().numpy()
         #return rr-self.alpha_r-expon.rvs(scale=exp_scale,size=self.sample_num)
     #np.random.exponential(scale=exp_scale,size=self.sample_num) #a simple policy
     
