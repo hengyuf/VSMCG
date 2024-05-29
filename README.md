@@ -1,10 +1,31 @@
 # VSMCG
-## Requirements
-Numpy
-Torch
-Scipy
-## Usage
-Clone the package and run EM.py.
+# This codebase is a PyTorch implementation of VSMCG, the course projects of Bayesian Theory and Computation.
+
+If it is helpful for your work, please⭐
+
+# Install
+```shell
+git clone https://github.com/hengyuf/VSMCG.git
+cd VSMCG
+```
+
+## Attention Mechanisms
+### 1. Squeeze-and-Excitation Attention
+* #### Squeeze-and-Excitation Networks (CVPR 2018) [pdf](https://arxiv.org/pdf/1709.01507)
+* ##### Model Overview
+![](https://github.com/changzy00/pytorch-attention/blob/master/images/senet.png)
+
+* ##### Code
+```python
+import torch
+from attention_mechanisms.se_module import SELayer
+
+x = torch.randn(2, 64, 32, 32)
+attn = SELayer(64)
+y = attn(x)
+print(y.shape)
+
+```
 
 
 
