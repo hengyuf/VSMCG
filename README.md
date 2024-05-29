@@ -1,5 +1,5 @@
 # VSMCG
-# This codebase is a PyTorch implementation of VSMCG, the course projects of Bayesian Theory and Computation.
+This codebase is a PyTorch implementation of VSMCG, the course projects of Bayesian Theory and Computation.
 
 If it is helpful for your work, please⭐
 
