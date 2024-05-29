@@ -11,13 +11,13 @@ cd VSMCG
 
 # Usage
 ## Data Generation
-See data_generate.py
+See `data_generate.py`.
 ## Train the variational policy
-See VI.py
+See `VI.py`.
 ## Sample
-See sampler.py
+See `sampler.py`.
 ## EM algorithm
-See EM.py
+See `EM.py`.
 
 
 
