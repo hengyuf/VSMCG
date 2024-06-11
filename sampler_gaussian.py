@@ -74,14 +74,14 @@ class GAUSSIAN_SAMPLER:
             ESS = 1/np.sum(np.power(weights, 2))
             self.ESS_list.append(ESS)
             if ESS < resample_thre*sample_num:
-                samples[:,i] = self.resample(samples[:,i], weights)
+                samples[:,:i+1] = self.resample(samples[:,:i+1], weights)
                 weights = np.ones(sample_num)/sample_num
                 log_weights=np.zeros(sample_num)
             weights_full[:, i] = weights
         return samples, weights_full
 
     def sample(self, sample_num:int, r, norm_scale=0.5, norm_mean=1, resample_thre=0.2, max_iterations=5, seed=0):
-        samples, weights_full = self.naive_sample(sample_num, r, norm_scale=norm_scale, norm_mean=norm_mean, resample_thre=resample_thre, seed=seed)
+        samples, weights_full = self.naive_sample(sample_num, r, norm_scale=norm_scale, norm_mean=norm_mean, resample_thre=resample_thre, seed=0)
         for _ in range(max_iterations):
             norm_mean_list = []
             norm_scale_list = []
@@ -90,8 +90,8 @@ class GAUSSIAN_SAMPLER:
                 norm_mean_list.append(r[i]-self.params[0]-mu)
                 var = np.sum(weights_full[:,i]*np.power(samples[:,i]-mu, 2))
                 norm_scale_list.append(np.sqrt(var))
-            samples, weights_full = self.naive_sample(sample_num, r, norm_scale=norm_scale_list, norm_mean=norm_mean_list, resample_thre=resample_thre, seed=seed)
-        return samples, weights_full
+            samples, weights_full = self.naive_sample(sample_num, r, norm_scale=norm_scale_list, norm_mean=norm_mean_list, resample_thre=resample_thre, seed=0)
+        return samples, weights_full[:,-1]
         
     
     def plot_ESS(self, y_high=0, title=""):
@@ -131,7 +131,7 @@ if __name__=="__main__":
     sampler.plot_ESS()
     print(r.shape,samples.shape,weights.shape)
     print(samples)
-    index = np.random.choice(list(range(len(weights))), p=weights[:,-1], size=(len(weights)))
+    index = np.random.choice(list(range(len(weights))), p=weights, size=(len(weights)))
     unique_val=[]
     for t in range(T):
         unique_val.append(np.unique(samples[:,t][index]).shape[0])
