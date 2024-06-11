@@ -4,6 +4,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import torch.distributions as tdist
 import matplotlib.pyplot as plt
+import numpy as np
+from generate_train_set import generate_train
 
 base_dist = tdist.Gamma(1.5,0.75)
 learning_rate = 3e-3
@@ -11,7 +13,7 @@ num_epochs = 1000
 batch_size = 512
 N=16384
 hidden_size=32
-loss_tolerance=40000 #Gradually decay to 0.5*tolerance
+loss_tolerance=4000000 #Gradually decay to 0.5*tolerance
 
 #Model input: (n,3) tensor with each column as follows:
 #input[:,0]: w_t
@@ -76,9 +78,11 @@ model = VIScaler(hidden_size=hidden_size)
 model.train()
 
 scale=1
-gen_data=True
-if gen_data:
+gen_data_aug=True
 
+
+
+if gen_data_aug==False:
     r = torch.rand(N,)*scale-scale/2
     epsilon_past = torch.rand(N,)*scale-scale/2
     r_past = torch.rand(N,)*scale-scale/2
@@ -96,7 +100,25 @@ if gen_data:
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     torch.save(dataloader,"./data.pt")
 else:
-    dataloader=torch.load("./data.pt")
+    params = (0,0.5,6,1,0.2,0,0,2)
+    with open("data_"+str(params)+".npy", "rb") as f:
+        data_r = np.load(f)[0][:, 0]    
+    epsilon_past, r, r_past = generate_train(params, data_r, N)
+    N = epsilon_past.shape[0]
+    alpha_r = params[0]*torch.ones(N, ) 
+    beta_r = params[1]*torch.ones(N, ) 
+    d = params[2]*torch.ones(N, )
+    alpha_u =  params[3]*torch.ones(N, )
+    beta_u = params[4]*torch.ones(N, )
+    gamma = params[5]*torch.ones(N, )
+    theta = params[6]*torch.ones(N, )
+    _lambda = params[7]*torch.ones(N, )
+
+    Trainset = param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda)
+    dataset = TensorDataset(Trainset,r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    torch.save(dataloader,"./data.pt")
+
 
 optimizer = optim.Adam(model.parameters(), lr=learning_rate,betas=(0.9, 0.999), eps=1e-8, weight_decay=0.001,)
 scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=50, gamma=0.7)
@@ -135,9 +157,9 @@ for epoch in range(num_epochs):
         plt.xscale("log")
         plt.plot(loss_epoch)
         plt.savefig(f"./figs/Loss_test1_Epoch1-{epoch}.png")
-        torch.save(model,f"VIScaler_test1_{epoch}.pth")
-    if epoch>50 and loss_epoch[-1]<= min(loss_epoch)+1e-4:
-        torch.save(model,f"VIScaler_test1_{epoch}_loss_{loss_epoch[-1]}.pth")
+        torch.save(model,f"./model/VIScaler_test1_{epoch}.pth")
+    if epoch>0 and loss_epoch[-1]<= min(loss_epoch)+1e-4:
+        torch.save(model,f"./model/VIScaler_test1_{epoch}_loss_{loss_epoch[-1]}.pth")
     scheduler.step()
 
 
