@@ -84,12 +84,13 @@ class GAUSSIAN_SAMPLER:
         samples, weights_full = self.naive_sample(sample_num, r, norm_scale=norm_scale, norm_mean=norm_mean, resample_thre=0.1, seed=0)
         norm_mean_list = []
         norm_scale_list = []
-        for i in range(sample_num):
+        for i in range(self.T):
+            print(i)
             mu = np.sum(weights_full[:,i]*samples[:,i])
             norm_mean_list.append(r[i]-self.params[0]-mu)
             var = np.sum(weights_full[:,i]*np.power(samples[:,i]-mu, 2))
             norm_scale_list.append(np.sqrt(var))
-        return self.sample(sample_num, self.r, norm_scale=norm_scale_list, norm_mean=norm_mean_list, resample_thre=0.1, seed=0)
+        return self.naive_sample(sample_num, r, norm_scale=norm_scale_list, norm_mean=norm_mean_list, resample_thre=0.1, seed=0)
         
     
     def plot_ESS(self, y_high=0, title=""):
@@ -117,3 +118,30 @@ class GAUSSIAN_SAMPLER:
         #return expon.logpdf(rr-self.alpha_r-eps, scale=exp_scale)
         #return np.log(0.8-(rr-self.alpha_r-eps))
         return np.log(norm.pdf(rr-self.alpha_r-eps-norm_mean, scale=norm_scale)+norm.pdf(-rr+self.alpha_r+eps-norm_mean, scale=norm_scale))
+    
+
+if __name__=="__main__":
+    T=100
+    r=np.load("./r.npy")
+    print(r.shape)
+    params=(0.2, 0.2, 6.0, 1.0, 0.4, 0.1, 0.02, 2.5)
+    sampler=GAUSSIAN_SAMPLER(T,params)
+    samples,weights=sampler.sample(10000,r,resample_thre=0.2)
+    sampler.plot_ESS()
+    print(r.shape,samples.shape,weights.shape)
+    print(samples)
+    index = np.random.choice(list(range(len(weights))), p=weights[:,-1], size=(len(weights)))
+    unique_val=[]
+    for t in range(T):
+        unique_val.append(np.unique(samples[:,t][index]).shape[0])
+    
+
+    # plt.hist((samples[:,i])[index], density=True, bins=40, label="sampled")
+    # plt.legend()
+    # plt.show()
+    print(unique_val)
+    plt.plot(unique_val)
+    plt.title("Unique values")
+    plt.xlabel("t")
+    plt.show()
+    #print(weights)
