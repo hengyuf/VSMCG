@@ -80,17 +80,18 @@ class GAUSSIAN_SAMPLER:
             weights_full[:, i] = weights
         return samples, weights_full
 
-    def sample(self, sample_num:int, r, norm_scale=0.5, norm_mean=1, resample_thre=0.2, seed=0):
-        samples, weights_full = self.naive_sample(sample_num, r, norm_scale=norm_scale, norm_mean=norm_mean, resample_thre=0.1, seed=0)
-        norm_mean_list = []
-        norm_scale_list = []
-        for i in range(self.T):
-            print(i)
-            mu = np.sum(weights_full[:,i]*samples[:,i])
-            norm_mean_list.append(r[i]-self.params[0]-mu)
-            var = np.sum(weights_full[:,i]*np.power(samples[:,i]-mu, 2))
-            norm_scale_list.append(np.sqrt(var))
-        return self.naive_sample(sample_num, r, norm_scale=norm_scale_list, norm_mean=norm_mean_list, resample_thre=0.1, seed=0)
+    def sample(self, sample_num:int, r, norm_scale=0.5, norm_mean=1, resample_thre=0.2, max_iterations=5, seed=0):
+        samples, weights_full = self.naive_sample(sample_num, r, norm_scale=norm_scale, norm_mean=norm_mean, resample_thre=resample_thre, seed=0)
+        for _ in range(max_iterations):
+            norm_mean_list = []
+            norm_scale_list = []
+            for i in range(self.T):
+                mu = np.sum(weights_full[:,i]*samples[:,i])
+                norm_mean_list.append(r[i]-self.params[0]-mu)
+                var = np.sum(weights_full[:,i]*np.power(samples[:,i]-mu, 2))
+                norm_scale_list.append(np.sqrt(var))
+            samples, weights_full = self.naive_sample(sample_num, r, norm_scale=norm_scale_list, norm_mean=norm_mean_list, resample_thre=resample_thre, seed=0)
+        return samples, weights_full
         
     
     def plot_ESS(self, y_high=0, title=""):
