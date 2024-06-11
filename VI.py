@@ -4,16 +4,34 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import torch.distributions as tdist
 import matplotlib.pyplot as plt
+import random
 import numpy as np
 from generate_train_set import generate_train
+from torch.distributions import Normal
+
+class HalfNormal:
+    def __init__(self, scale):
+        self.normal = Normal(0, scale)
+    
+    def sample(self, sample_shape=torch.Size()):
+        return torch.abs(self.normal.sample(sample_shape))
+    
+    def log_prob(self, value):
+        # Only defined for value >= 0
+        if torch.any(value < 0):
+            return torch.tensor(float('-inf'))
+        return self.normal.log_prob(value) + torch.log(torch.tensor(2.0))
 
 base_dist = tdist.Gamma(1.5,0.75)
+base_dist2 = HalfNormal(1)
 learning_rate = 3e-3
 num_epochs = 1000
 batch_size = 512
 N=16384
 hidden_size=32
-loss_tolerance=4000000 #Gradually decay to 0.5*tolerance
+loss_tolerance=60000 #Gradually decay to 0.5*tolerance
+
+gen_data=False
 
 #Model input: (n,3) tensor with each column as follows:
 #input[:,0]: w_t
@@ -61,16 +79,19 @@ class VIScaler(nn.Module):
         self.fc21 = nn.Linear(hidden_size, 1)
         self.fc22 = nn.Linear(hidden_size, 1)
         self.fc23 = nn.Linear(hidden_size, 1)
+        self.fc24 = nn.Linear(hidden_size, 1)
     
     def forward(self, x):
         x = torch.relu(self.fc1(x))
         x1 = self.fc21(x)
         x2 = self.fc22(x)
         x3 = self.fc23(x)
+        x4 = self.fc24(x)
         x1 = 1e-2+torch.sigmoid(x1)
         x2 = 1e-4+0.4*torch.sigmoid(x2)
         x3 = 1e-4+0.4*torch.sigmoid(x3)
-        return x1,x2,x3
+        x4 = 1e-4+torch.sigmoid(x4)
+        return x1,x2,x3,x4
 
 
 
@@ -78,7 +99,7 @@ model = VIScaler(hidden_size=hidden_size)
 model.train()
 
 scale=1
-gen_data_aug=True
+gen_data_aug=False
 
 
 
@@ -131,10 +152,15 @@ for epoch in range(num_epochs):
         optimizer.zero_grad()
         
 
-        outputs,outputs2,outputs3 = model(batch_data)
-        outputs,outputs2,outputs3 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1)
-        base=base_dist.sample((batch_data.shape[0],)).reshape(-1)
+        outputs,outputs2,outputs3,outputs4 = model(batch_data)
+        outputs,outputs2,outputs3,outputs4 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1),outputs4.reshape(-1)
         
+        base1=base_dist.sample((batch_data.shape[0],)).reshape(-1)
+        base2=base_dist2.sample((batch_data.shape[0],)).reshape(-1)
+        random_tensor = torch.rand_like(outputs4)
+
+        base = torch.where(random_tensor < outputs4, base1, base2)
+
         modifiedbase=outputs*base+outputs2*base**1.5+outputs3*base**0.5
         jacobian=outputs+1.5*base**0.5*outputs2+0.5*outputs3*base**(-0.5)
 
@@ -142,24 +168,33 @@ for epoch in range(num_epochs):
         #jacobian=outputs
         logprob=log_likelihood_update(batch[1]-batch[4]-modifiedbase,batch[1],batch[2],batch[3],batch[4],batch[5],batch[6],batch[7],batch[8],batch[9],batch[10],batch[11])
         
-        loss=torch.mean(-base-torch.log(jacobian)-logprob,dim=0)
+        baselogprob=torch.log(outputs4*torch.exp(base_dist.log_prob(base))+(1-outputs4)*torch.exp(base_dist2.log_prob(base)))
+
+        loss=torch.mean(baselogprob-torch.log(jacobian)-logprob,dim=0)
         #print(logprob.shape) #logq_prob-logp_prob
         if loss.item()<loss_tolerance*(0.5+5/(epoch+10)):
             loss.backward()
             loss_list.append(loss.item())
             optimizer.step()
+        elif random.random()<0.1:
+            loss_list.append(loss.item())
+            loss=loss*0.2
+            loss.backward()
+            optimizer.step()
+
     print(f"----------EPOCH {epoch}------------")
     loss_list=torch.tensor(loss_list)
     print(f"Loss:{torch.mean(loss_list)} Total batch:{loss_list.shape} Loss:{loss.item()}")
     loss_epoch.append(torch.mean(loss_list))
     if epoch%50==49:
         plt.figure()
+        plt.yscale("log")
         plt.xscale("log")
         plt.plot(loss_epoch)
         plt.savefig(f"./figs/Loss_test1_Epoch1-{epoch}.png")
-        torch.save(model,f"./model/VIScaler_test1_{epoch}.pth")
-    if epoch>0 and loss_epoch[-1]<= min(loss_epoch)+1e-4:
-        torch.save(model,f"./model/VIScaler_test1_{epoch}_loss_{loss_epoch[-1]}.pth")
+        torch.save(model,f"VIScaler_test1_{epoch}.pth")
+    if epoch>50 and loss_epoch[-1]<= min(loss_epoch)+1e-4:
+        torch.save(model,f"VIScaler_test1_{epoch}_loss_{loss_epoch[-1]}.pth")
     scheduler.step()
 
 
