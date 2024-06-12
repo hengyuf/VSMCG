@@ -69,17 +69,19 @@ class TEST_SAMPLER:
     """test sampler"""
     ESS_list = []
     sample_num = 1
-    def __init__(self, T, params,path="VIScaler_test1_99.pth"):
+    def __init__(self, T, params,path="VIScaler_test1_99.pth",debug=False):
         self.alpha_r, self.beta_r, self.d, self.alpha_u, self.beta_u,self.gamma, self.theta, self._lambda = params
         # print(params)
         self.params = params
         self.T = T
                 
         self.model=VIScaler(hidden_size=16)
-        self.model=torch.load(path)
+        self.model=torch.load(path).to('cpu')
         self.model.eval()
         self.base_dist=tdist.Gamma(1.5,0.75)
         self.base_dist2=HalfNormal(1)
+
+        self.debug=debug
 
     def log_likelihood_update(self,epsilon,r,epsilon_past,r_past):
         ''' Compute log joint likelihood of l=log p(eps_t,r_t|eps_{t-1},r_{t-1})'''
@@ -115,7 +117,7 @@ class TEST_SAMPLER:
         #print(log_joint)
         return log_joint
     
-    def sample(self, sample_num:int, r, exp_scale=1, resample_thre=0.1):
+    def sample(self, sample_num:int, r, exp_scale=1, resample_thre=0.1, checklist=[50]):
         self.ESS_list = []
         self.sample_num = sample_num
         
@@ -135,23 +137,49 @@ class TEST_SAMPLER:
             log_weights += self.log_likelihood_update(eps,rr,eps_past,r_past)-log_density          #self.log_policy_density(eps, rr, w, exp_scale,r_past)
 
             
-            r_past=rr
+
             samples[:,i]=eps
             weights=np.exp(log_weights)
             weights=weights/weights.sum()
             
             ESS = 1/np.sum(np.power(weights, 2))
             self.ESS_list.append(ESS)
+            if self.debug and (ESS<0.1*sample_num*resample_thre or i in checklist):
+                print('\n'*3)
+                print(f"----Debug Information of Epoch {i}:")
+                print(f"ESS: {ESS}")
+                print(f"Weights min: {min(weights)} max: {max(weights)}")
+                print(f"rpast: {r_past} rcurrent: {rr}")
+
+                #Plot Weights
+                plt.figure()
+                num_bins = 42
+                log_bins = np.logspace(np.log10(1e-14), np.log10(1), num_bins)
+                plt.hist(weights, bins=log_bins, label=f"Histogram of Weights At Time {i}")
+                plt.yscale('log')
+                plt.xscale('log')
+                plt.savefig(f'Debug-Weights-t={i}.png')
+
+                #Info About Largest
+                index=np.argmax(weights)
+                output1,output2=self.policy(eps_past, rr, w, exp_scale,r_past,getoutput=True)
+                print(f"Index of largest point: {index}")
+                print(f"eps[index]: {eps[index]} eps_min: {min(eps)} eps_max: {max(eps)}")
+                print(f"eps_past[index]: {eps_past[index]}  eps_min: {min(eps)} eps_max: {max(eps)}")
+                print(f"output1[index]: {output1[index]}")
+                print(f"output2[index]: {output2[index]}")
             if ESS < sample_num*resample_thre:
                 samples[:,:i] = self.resample(samples[:,:i], weights)
                 weights = np.ones(sample_num)/sample_num
                 log_weights=np.zeros(sample_num)
                 eps=samples[:,i]
+            r_past=rr
         return samples, weights
     
     def plot_ESS(self, y_high=0, title=""):
         if y_high == 0:
             y_high = self.sample_num
+        plt.figure()
         plt.plot(range(self.T), self.ESS_list)
         plt.ylim(0, y_high)
         plt.xlim(0, self.T)
@@ -166,7 +194,9 @@ class TEST_SAMPLER:
         return samples[index]
 
 
-    def policy(self, eps_past, rr, w, exp_scale,r_past):
+    def policy(self, eps_past, rr, w, exp_scale,r_past,getoutput=False):
+        #getoutput=True and the function will change to return model outputs
+
         # print("exponentials:",expon.rvs(scale=exp_scale,size=self.sample_num))
         # print("values:",rr,self.alpha_r,self.beta_r*w,self.beta_r*np.random.exponential(scale=exp_scale,size=self.sample_num))
         #print("generate eps:",rr-self.alpha_r-self.beta_r*w-self.beta_r*np.random.exponential(scale=exp_scale,size=self.sample_num))
@@ -174,6 +204,8 @@ class TEST_SAMPLER:
                               torch.tensor(self.d),torch.tensor(self.alpha_u),torch.tensor(self.beta_u),torch.tensor(self.gamma),
                               torch.tensor(self.theta),torch.tensor(self._lambda))
         outputs,outputs2,outputs3,outputs4 = self.model(inputs)
+        if getoutput:
+            return outputs,outputs2
         outputs,outputs2,outputs3,outputs4 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1),outputs4.reshape(-1)
         assert eps_past.shape[0]==outputs.shape[0]
         assert outputs.min()>=0

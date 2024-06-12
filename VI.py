@@ -147,8 +147,9 @@ def gen_data(N=100,T=100,scale=1):
         # _lambda = (torch.rand(1)*scale).item()#4*torch.ones(N, ) #torch.rand(N,)*scale
 
             #alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=0.2+np.random.randn()*0.05, 0.2+np.random.randn()*0.05, 6.0+np.random.randn(), 1+np.random.randn()*0.2, 0.4+np.random.randn()*0.1, 0.1+np.random.randn()*0.02, 0.02+np.random.randn()*0.002, 2.5
-        alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=0.2, 0.1+np.random.uniform()*0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5
-
+        alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=np.random.uniform()*2-1, 0.02+(1-np.random.uniform()**4)*0.2, 6.0, 0.8+np.random.uniform()*0.4, 0.3+np.random.uniform()*0.2,0.1, 0.02, 2.5
+        if np.random.uniform()<0.5:
+            alpha_r=-10
         eps=0
         u=0
         eps_templist=np.zeros(T+1)
@@ -171,7 +172,7 @@ def gen_data(N=100,T=100,scale=1):
             # theta = (torch.rand(1)*2*scale-scale).item()#0*torch.ones(N, )   #torch.rand(N,)*scale
             # _lambda = (torch.rand(1)*scale).item()#4*torch.ones(N, ) #torch.rand(N,)*scale
 
-            alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=0.2, 0.1+np.random.uniform()*0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5
+            alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=np.random.uniform()*10-5, 0.02+(1-np.random.uniform()**4)*0.2, 6.0, 0.8+np.random.uniform()*0.4, 0.3+np.random.uniform()*0.2,0.1, 0.02, 2.5
             eps=0
             u=0
             eps_templist=np.zeros(T+1)
@@ -211,13 +212,13 @@ alpha_r_list.reshape(-1), beta_r_list.reshape(-1), d_list.reshape(-1), alpha_u_l
 
 scale=1
 gen_data_aug=False
-N=256
+N=1280
 T=1000
 
 learning_rate = 3*1e-3
-num_epochs = 200
-batch_size = 2560
-hidden_size=64
+num_epochs = 10
+batch_size = 256
+hidden_size= 64
 loss_tolerance=10000 #Gradually decay to 0.5*tolerance
 
 
