@@ -13,6 +13,8 @@ from torch.distributions import Normal
 
 from tqdm import tqdm, trange
 
+device='cuda'
+
 class HalfNormal:
     def __init__(self, scale):
         self.normal = Normal(0, scale)
@@ -89,15 +91,15 @@ def param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gam
 class VIScaler(nn.Module):
     def __init__(self, hidden_size=16):
         super().__init__()
-        self.fc1 = nn.Linear(3, hidden_size)
-        self.fc12= nn.Linear(hidden_size, hidden_size)
-        self.fc13= nn.Linear(hidden_size, hidden_size)
+        self.fc1 = nn.Linear(3, hidden_size).to(device)
+        self.fc12= nn.Linear(hidden_size, hidden_size).to(device)
+        self.fc13= nn.Linear(hidden_size, hidden_size).to(device)
 
 
-        self.fc21 = nn.Linear(hidden_size, 1)
-        self.fc22 = nn.Linear(hidden_size, 1)
-        self.fc23 = nn.Linear(hidden_size, 1)
-        self.fc24 = nn.Linear(hidden_size, 1)
+        self.fc21 = nn.Linear(hidden_size, 1).to(device)
+        self.fc22 = nn.Linear(hidden_size, 1).to(device)
+        self.fc23 = nn.Linear(hidden_size, 1).to(device)
+        self.fc24 = nn.Linear(hidden_size, 1).to(device)
     
     def forward(self, x):
         x = torch.relu(self.fc1(x))
@@ -135,18 +137,17 @@ def gen_data(N=100,T=100,scale=1):
     for i in range(N):
 
 
-        alpha_r = (torch.rand(1)*4*scale-2*scale).item()   #0*torch.ones(N, ) #torch.rand(N,)*scale#
-        beta_r = (torch.rand(1)*scale*1).item()#0.5*torch.ones(N, ) #torch.rand(N,)*scale
-        d = 6
-        alpha_u =  (torch.rand(1)*4*scale).item()+1#0.5*torch.ones(N, ) #torch.rand(N,)*2*scale
-        beta_u = (torch.rand(1)*scale*0.4).item()#0.2*torch.ones(N, )   #torch.rand(N,)*scale
-        gamma = (torch.rand(1)*0.4*scale).item()#0*torch.ones(N, )   #torch.rand(N,)*scale
-        theta = (torch.rand(1)*scale*0.4).item()#0*torch.ones(N, )   #torch.rand(N,)*scale
-        _lambda = (torch.rand(1)*scale).item()#4*torch.ones(N, ) #torch.rand(N,)*scale
+        # alpha_r = (torch.rand(1)*4*scale-2*scale).item()   #0*torch.ones(N, ) #torch.rand(N,)*scale#
+        # beta_r = (torch.rand(1)*scale*1).item()#0.5*torch.ones(N, ) #torch.rand(N,)*scale
+        # d = 6
+        # alpha_u =  (torch.rand(1)*4*scale).item()+1#0.5*torch.ones(N, ) #torch.rand(N,)*2*scale
+        # beta_u = (torch.rand(1)*scale*0.4).item()#0.2*torch.ones(N, )   #torch.rand(N,)*scale
+        # gamma = (torch.rand(1)*0.4*scale).item()#0*torch.ones(N, )   #torch.rand(N,)*scale
+        # theta = (torch.rand(1)*scale*0.4).item()#0*torch.ones(N, )   #torch.rand(N,)*scale
+        # _lambda = (torch.rand(1)*scale).item()#4*torch.ones(N, ) #torch.rand(N,)*scale
 
-        if i<=10000:
             #alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=0.2+np.random.randn()*0.05, 0.2+np.random.randn()*0.05, 6.0+np.random.randn(), 1+np.random.randn()*0.2, 0.4+np.random.randn()*0.1, 0.1+np.random.randn()*0.02, 0.02+np.random.randn()*0.002, 2.5
-            alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=0.2, 0.1+np.random.uniform()*0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5
+        alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=0.2, 0.1+np.random.uniform()*0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5
 
         eps=0
         u=0
@@ -220,7 +221,7 @@ hidden_size=64
 loss_tolerance=10000 #Gradually decay to 0.5*tolerance
 
 
-model = VIScaler(hidden_size=hidden_size)
+model = VIScaler(hidden_size=hidden_size).to(device)
 model.train()
 
 
@@ -230,9 +231,9 @@ model.train()
 r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda=gen_data(N=N,T=T,scale=scale)
 print("-----------Train Dataset------------")
 print("r",r.max())
-Trainset = param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda)
+Trainset = param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda).to(device)
 #print(Trainset)
-dataset = TensorDataset(Trainset,r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda)
+dataset = TensorDataset(Trainset,r.to(device),epsilon_past.to(device),r_past.to(device),alpha_r.to(device), beta_r.to(device), d.to(device), alpha_u.to(device), beta_u.to(device),gamma.to(device), theta.to(device), _lambda.to(device))
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 print("-----------Test Dataset ------------")
 
@@ -253,9 +254,9 @@ r=torch.randn(N)
 r_past=torch.zeros((N))
 r_past[1:]=r[:N-1]
 
-Testset = param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda)
+Testset = param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda).to(device)
 #print(Trainset)
-test_dataset = TensorDataset(Testset,r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda)
+test_dataset = TensorDataset(Testset,r.to(device),epsilon_past.to(device),r_past.to(device),alpha_r.to(device), beta_r.to(device), d.to(device), alpha_u.to(device), beta_u.to(device),gamma.to(device), theta.to(device), _lambda.to(device))
 test_dataloader = DataLoader(test_dataset, batch_size=N, shuffle=True)
 
 
@@ -332,7 +333,7 @@ with trange(num_epochs) as t:
             outputs,outputs2,outputs3,outputs4 = model(batch_data)
             outputs,outputs2,outputs3,outputs4 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1),outputs4.reshape(-1)
             base_dist=TruncatedNormal(loc=outputs,scale=outputs2,a=1e-4,b=100)
-            modifiedbase= base_dist.rsample(sample_shape=torch.ones(1).shape).reshape(-1)
+            modifiedbase= base_dist.rsample(sample_shape=torch.ones(1).shape).reshape(-1).to(device)
 
             logprob=log_likelihood_update(batch[1]-batch[4]-modifiedbase,batch[1],batch[2],batch[3],batch[4],batch[5],batch[6],batch[7],batch[8],batch[9],batch[10],batch[11])
 
