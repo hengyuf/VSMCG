@@ -6,6 +6,10 @@ import pdb
 import torch
 from torch.distributions import Normal
 import torch.nn as nn
+from TruncatedNormal import TruncatedNormal
+
+# import line_profiler
+# profile = line_profiler.LineProfiler()
 
 def param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda):
     #epsilon_past is of shape (n,) everying else scalers
@@ -22,6 +26,10 @@ class VIScaler(nn.Module):
     def __init__(self, hidden_size=16):
         super().__init__()
         self.fc1 = nn.Linear(3, hidden_size)
+        self.fc12= nn.Linear(hidden_size, hidden_size)
+        self.fc13= nn.Linear(hidden_size, hidden_size)
+
+
         self.fc21 = nn.Linear(hidden_size, 1)
         self.fc22 = nn.Linear(hidden_size, 1)
         self.fc23 = nn.Linear(hidden_size, 1)
@@ -29,15 +37,20 @@ class VIScaler(nn.Module):
     
     def forward(self, x):
         x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc12(x))
+        x= torch.relu(self.fc13(x))
         x1 = self.fc21(x)
         x2 = self.fc22(x)
         x3 = self.fc23(x)
         x4 = self.fc24(x)
         x1 = 1e-2+torch.sigmoid(x1)
-        x2 = 1e-4+0.4*torch.sigmoid(x2)
-        x3 = 1e-4+0.4*torch.sigmoid(x3)
+        x2 = 1e-4+torch.sigmoid(x2)
+        x3 = 1e-4+torch.sigmoid(x3)
         x4 = 1e-4+torch.sigmoid(x4)
         return x1,x2,x3,x4
+
+
+
 
 class HalfNormal:
     def __init__(self, scale):
@@ -81,7 +94,7 @@ class TEST_SAMPLER:
 
         w=self.alpha_u+self.beta_u*u_past+(self.gamma+self.theta*(epsilon_past<0))*(epsilon_past**2)
 
-        nu=np.sqrt(self.beta_r/(r-epsilon-self.alpha_r+1e-6))*epsilon
+        nu=np.sqrt(self.beta_r/(r-epsilon-self.alpha_r+1e-4))*epsilon
         nu=np.where(np.isnan(nu),1e10,nu)
         eta=(r-epsilon-self.alpha_r)/self.beta_r-w
         #eta=np.maximum(eta,1e-7)
@@ -101,7 +114,7 @@ class TEST_SAMPLER:
         #log_joint=np.where(np.isnan(log_joint),-1e10,log_joint)
         #print(log_joint)
         return log_joint
-        
+    
     def sample(self, sample_num:int, r, exp_scale=1, resample_thre=0.1):
         self.ESS_list = []
         self.sample_num = sample_num
@@ -151,7 +164,8 @@ class TEST_SAMPLER:
     def resample(self, samples, weights):
         index = np.random.choice(list(range(len(weights))), p=weights, size=(len(weights)))
         return samples[index]
-    
+
+
     def policy(self, eps_past, rr, w, exp_scale,r_past):
         # print("exponentials:",expon.rvs(scale=exp_scale,size=self.sample_num))
         # print("values:",rr,self.alpha_r,self.beta_r*w,self.beta_r*np.random.exponential(scale=exp_scale,size=self.sample_num))
@@ -161,19 +175,48 @@ class TEST_SAMPLER:
                               torch.tensor(self.theta),torch.tensor(self._lambda))
         outputs,outputs2,outputs3,outputs4 = self.model(inputs)
         outputs,outputs2,outputs3,outputs4 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1),outputs4.reshape(-1)
-        assert torch.tensor(eps_past).shape[0]==outputs.shape[0]
+        assert eps_past.shape[0]==outputs.shape[0]
+        assert outputs.min()>=0
+        assert outputs2.min()>=0
         #outputs=torch.tensor(0.4).expand(inputs.shape[0],)
-        base1=self.base_dist.sample((inputs.shape[0],)).reshape(-1)
-        base2=self.base_dist2.sample((inputs.shape[0],)).reshape(-1)
-        random_tensor = torch.rand_like(outputs4)
+        # base1=self.base_dist.sample((inputs.shape[0],)).reshape(-1)
+        # base2=self.base_dist2.sample((inputs.shape[0],)).reshape(-1)
+        # random_tensor = torch.rand_like(outputs4)
 
-        base = torch.where(random_tensor < outputs4, base1, base2)
-        baselogprob=torch.log(outputs4*torch.exp(self.base_dist.log_prob(base))+(1-outputs4)*torch.exp(self.base_dist2.log_prob(base)))
-        print(outputs2)
-        modifiedbase=outputs*base+outputs2*base**1.5+outputs3*base**0.5
-        jacobian=outputs+1.5*base**0.5*outputs2+0.5*outputs3*base**(-0.5)
+        # base = base1#torch.where(random_tensor < outputs4, base1, base2)
+        # baselogprob=self.base_dist.log_prob(base) #torch.log(outputs4*torch.exp(self.base_dist.log_prob(base))+(1-outputs4)*torch.exp(self.base_dist2.log_prob(base)))
+        # #print(outputs2)
+        # modifiedbase=outputs*base+outputs2*base**1.5+outputs3*base**0.5
+        # jacobian=outputs+1.5*base**0.5*outputs2+0.5*outputs3*base**(-0.5)
+
+        base_dist=TruncatedNormal(loc=outputs,scale=outputs2,a=1e-4,b=100)
+
+        #print(batch[1].shape)
+
+        modifiedbase= base_dist.rsample(sample_shape=torch.ones(1).shape).reshape(-1)
+        #print(modifiedbase.shape)
+        # base1=base_dist.sample((batch_data.shape[0],)).reshape(-1)
+        # #base2=base_dist2.sample((batch_data.shape[0],)).reshape(-1)
+        # random_tensor = torch.rand_like(outputs4)
+
+        # base = base1#torch.where(random_tensor < outputs4, base1, base2)
+
+        # modifiedbase=outputs*base+outputs2*base**1.5+outputs3*base**0.5
+        # assert modifiedbase.min()>0
+        # jacobian=outputs+1.5*base**0.5*outputs2+0.5*outputs3*base**(-0.5)
+
+        # #modifiedbase=outputs*base
+        # #jacobian=outputs
+        # #print("modified base1",modifiedbase)
+
+        # print("modified base:",modifiedbase.min(),modifiedbase.max())
+        # print("logprob:",logprob.min(),logprob.max())
+        # print(f"batch:{batch[1].max()} {batch[1].min()} {batch[4].max()} {batch[4].min()}")
+        
+        baselogprob=base_dist.log_prob(modifiedbase)  #torch.log(outputs4*torch.exp(base_dist.log_prob(base))+(1-outputs4)*torch.exp(base_dist2.log_prob(base)))
+
         sample=torch.tensor(rr)-torch.tensor(self.alpha_r)-modifiedbase
-        return sample.detach().numpy(),(baselogprob-torch.log(jacobian)).detach().numpy()
+        return sample.detach().numpy(),baselogprob.detach().numpy()   #sample.detach().numpy(),(baselogprob-torch.log(jacobian)).detach().numpy()
         #return rr-self.alpha_r-expon.rvs(scale=exp_scale,size=self.sample_num)
     #np.random.exponential(scale=exp_scale,size=self.sample_num) #a simple policy
     
@@ -181,30 +224,62 @@ class TEST_SAMPLER:
         eps=rr-self.alpha_r-expon.rvs(scale=exp_scale,size=self.sample_num)
         return eps, expon.logpdf((rr-self.alpha_r-eps),scale=exp_scale)
     
-    def log_policy_density(self, eps, rr, w, exp_scale,r_past):
-        #Now combined in policy()
+    def log_policy_density(self, eps,eps_past, rr,r_past):
+        inputs=param_to_input(torch.tensor(rr),torch.tensor(eps_past),torch.tensor(r_past),torch.tensor(self.alpha_r),torch.tensor(self.beta_r),
+                              torch.tensor(self.d),torch.tensor(self.alpha_u),torch.tensor(self.beta_u),torch.tensor(self.gamma),
+                              torch.tensor(self.theta),torch.tensor(self._lambda))
+        outputs,outputs2,outputs3,outputs4 = self.model(inputs)
+        outputs,outputs2,outputs3,outputs4 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1),outputs4.reshape(-1)
+        assert torch.tensor(eps_past).shape[0]==outputs.shape[0]
+
+        base_dist=TruncatedNormal(loc=outputs,scale=outputs2,a=1e-4,b=100)
+
+        #print(batch[1].shape)
+
+        modifiedbase= torch.tensor(rr)-torch.tensor(self.alpha_r)-eps
+
+        assert modifiedbase.min()>0
+
+        
+        baselogprob=base_dist.log_prob(modifiedbase)  #torch.log(outputs4*torch.exp(base_dist.log_prob(base))+(1-outputs4)*torch.exp(base_dist2.log_prob(base)))
+
+        return baselogprob
 
 
-        # print("exponential values:",(rr-self.alpha_r-self.beta_r*w-eps)/self.beta_r)
-        # print("logpdf:",expon.logpdf((rr-self.alpha_r-self.beta_r*w-eps)/self.beta_r,scale=exp_scale))
-        return expon.logpdf((rr-self.alpha_r-eps),scale=exp_scale)
+
 
 
 
 
 
 if __name__=="__main__":
+    T=100
     r=np.load("./r.npy")
     print(r.shape)
-    params=(0.2, 0.2, 6.0, 1.0, 0.4, 0.1, 0.02, 2.5)
-    sampler=TEST_SAMPLER(20,params,path='VIScaler_test1_174_loss_5790.3994140625.pth')
-    samples,weights=sampler.sample(10000,r,exp_scale=0.4)
-    sampler.plot_ESS()
-    print(r.shape,samples.shape,weights.shape)
-    print(samples)
-    i=10
-    index = np.random.choice(list(range(len(weights))), p=weights, size=(len(weights)))
-    plt.hist((samples[:,i])[index], density=True, bins=40, label="sampled")
-    plt.legend()
-    plt.show()
+    params=(0.2, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5)
+    sampler=TEST_SAMPLER(T,params,path='./pth/VIScaler_test1_199.pth')
+    samples,weights=sampler.sample(10000,r,resample_thre=0.2)
+    # sampler.plot_ESS()
+    # #print(r.shape,samples.shape,weights.shape)
+    # print(samples)
+    # i=99
+    # index = np.random.choice(list(range(len(weights))), p=weights, size=(len(weights)))
+    # plt.hist((samples[:,i])[index], density=True, bins=40, label="sampled")
+    # plt.legend()
+    # plt.show()
+
+    # unique_val=[]
+    # for t in range(T):
+    #     unique_val.append(np.unique(samples[:,t][index]).shape[0])
+    
+
+    # plt.hist((samples[:,i])[index], density=True, bins=40, label="sampled")
+    # plt.legend()
+    # # plt.show()
+    # print(unique_val)
+    # plt.plot(unique_val)
+    # plt.title("Unique values")
+    # plt.xlabel("t")
+    # plt.show()
     #print(weights)
+    # profile.print_stats()

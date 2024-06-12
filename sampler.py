@@ -33,6 +33,7 @@ class TEST_SAMPLER:
     ESS_list = []
     sample_num = 1
     def __init__(self, T, params,path="VIScaler_best.pth"):
+
         self.alpha_r, self.beta_r, self.d, self.alpha_u, self.beta_u,self.gamma, self.theta, self._lambda = params
         # print(params)
         self.params = params
@@ -106,17 +107,22 @@ class TEST_SAMPLER:
             
             r_past=rr
             samples[:,i]=eps
+            log_weights=log_weights-np.min(log_weights)
             weights=np.exp(log_weights)
+            #print("weights:",weights)
             weights=weights/weights.sum()
+            log_weights=np.log(weights)
             
             ESS = 1/np.sum(np.power(weights, 2))
             self.ESS_list.append(ESS)
             if ESS < sample_num:
                 samples[:,:i] = self.resample(samples[:,:i], weights)
                 weights = np.ones(sample_num)/sample_num
-                log_weights=np.zeros(sample_num)
+                log_weights=np.zeros(sample_num)-np.log(sample_num)
                 eps=samples[:,i]
-        return samples, weights
+            
+
+        return samples, log_weights
     
     def plot_ESS(self, y_high=0, title=""):
         if y_high == 0:
@@ -168,11 +174,13 @@ class TEST_SAMPLER:
 
 
 if __name__=="__main__":
+    T=20
     r=np.load("./r.npy")
-    params=(2.78928767198253, 0.2, 6.0, 2.0, 0.4, 0.1, 0.02, 2.5)
-    sampler=TEST_SAMPLER(2,params)
-    samples,weights=sampler.sample(10000,r,exp_scale=0.4)
-   #sampler.plot_ESS()
+    params=(0.2, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5)
+    #self.alpha_r, self.beta_r, self.d, self.alpha_u, self.beta_u, self.gamma, self.theta, self._lambda
+    sampler=TEST_SAMPLER(T,params)
+    samples,weights=sampler.sample(100000,r,exp_scale=0.5)
+    print(sampler.ESS_list)
     print(r.shape,samples.shape,weights.shape)
-    print(samples)
-    print(weights)
+    # print(samples)
+    # print(weights)
