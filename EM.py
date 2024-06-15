@@ -137,7 +137,7 @@ class EM:
 
         return log_joint
     
-    def compute_truth_likelihood(self,n=100000,radius=10,lower=0,upper=0):
+    def compute_truth_likelihood_grid(self,n=100000,radius=10,lower=0,upper=0):
         ''' Compute log joint likelihood of l=log p(eps_1,...,eps_T,r_1,...r_T)'''
         #Input:  epsilon  (n,T)
         #Output: log_prob (n,)
@@ -177,7 +177,15 @@ class EM:
         #print("radius:",radius)
         #print("log_joint:",log_joint)
         return torch.log(torch.sum(torch.exp(log_joint))) +(torch.sum(torch.log(radius)))-np.log(n)
-    
+
+
+    def compute_truth_likelihood(self,n=100000,resample_thre=0.2):
+        params=(self.alpha_r.item(), self.beta_r.item(), self.d.item(), self.alpha_u.item(), self.beta_u.item(), self.gamma.item(), self.theta.item(), self._lambda.item())
+        self.sampler.update_params(params)
+        samples, weights,log_prob=self.sampler.sample(n, np.array(self.r.T),resample_thre=resample_thre,return_prob=True)
+        return np.sum(weights*log_prob)
+
+
     def call_sampler(self,n,verbose=False,resample_thre=0.2):
         #remember to add .item() at final version
         params=(self.alpha_r.item(), self.beta_r.item(), self.d.item(), self.alpha_u.item(), self.beta_u.item(), self.gamma.item(), self.theta.item(), self._lambda.item())
@@ -275,17 +283,19 @@ class EM:
                             loss=-likelihood#+50*(self.alpha_r-0.1)**2 #
                             truth_l=likelihood
                             if compute_truth_l: #Only works with small T?
-                                truth_l=self.compute_truth_likelihood(n=1000000,lower=torch.ones(self.T)*(-5),upper=(self.r-self.alpha_r).reshape(self.T))
-                            ll_list.append(truth_l.detach().numpy())
+                                truth_l=self.compute_truth_likelihood(n=10000,resample_thre=0.2)
+                                ll_list.append(truth_l)
+                            else:
+                                ll_list.append(truth_l.detach().numpy())
                             loss.backward()
                             #self.upd_param(lr=2*1e-5,verbose=verbose)
                             optimizer.step()
                             
                             update_count+=1
                             
-                            with torch.no_grad():
-                                if self.beta_r<1e-2:
-                                    self.beta_r-=self.beta_r+1e-2
+                            # with torch.no_grad():
+                            #     if self.beta_r<1e-2:
+                            #         self.beta_r-=self.beta_r+1e-2
                                 # self.alpha_r=torch.maximum(torch.zeros_like(self.alpha_r),self.alpha_r)
                                 # self.beta_r=torch.maximum(1e-2*torch.ones_like(self.beta_r),self.beta_r)
                             #time.sleep(0.01)
@@ -334,10 +344,10 @@ class EM:
 
 if __name__=="__main__":
     #EM_sampler=EM(10,0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5,rfilename="./r.npy")
-    T=261
-    r=np.load("./data/r copy.npy")
+    T=300
+    r=np.load("./data/r.npy")
 
-    EM_sampler=EM(T, 0, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5,rfilename="./data/r copy.npy",scalerfile="./tmppth/VIScaler_test1_888.pth")
+    EM_sampler=EM(T, -1, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5,rfilename="./data/r.npy",scalerfile="./tmppth/VIScaler_test1_888.pth")
 
     # alpha_r_list=torch.linspace(0.0,5.0,20)
     
@@ -366,7 +376,7 @@ if __name__=="__main__":
 
 
 
-    EM_sampler.optimize(num_steps=2000,n=2048,batch_size=2048,max_epoch=1,init_lr=1e-2,decay=0.998,compute_truth_l=False,fine_tune=1,check_sample_quality=100)
+    EM_sampler.optimize(num_steps=200,n=2048,batch_size=2048,max_epoch=1,init_lr=1e-2,decay=0.98,compute_truth_l=True,fine_tune=0,check_sample_quality=0)
     plt.figure()
     plt.plot(EM_sampler.Likelihood_list)
     plt.xlabel("EM steps")

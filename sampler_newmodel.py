@@ -101,7 +101,7 @@ class TEST_SAMPLER:
         #print(log_joint)
         return log_joint
     
-    def sample(self, sample_num:int, r, exp_scale=1, resample_thre=0.1, checklist=[]):
+    def sample(self, sample_num:int, r, exp_scale=1, resample_thre=0.1, checklist=[], return_prob=False):
         self.ESS_list = []
         self.sample_num = sample_num
         
@@ -109,6 +109,7 @@ class TEST_SAMPLER:
         log_weights = np.ones(sample_num)
         eps=np.zeros(sample_num)
         r_past=self.alpha_r
+        log_truth_weights=np.ones(sample_num)
         for i in range(self.T): 
             # print(f"----------STEP{i}----------")
             #pdb.set_trace()
@@ -118,9 +119,10 @@ class TEST_SAMPLER:
             w=self.alpha_u+self.beta_u*u_past+(self.gamma+self.theta*(eps_past<0))*(eps_past**2)
             eps,log_density = self.policy(eps_past, rr, w, exp_scale,r_past)
             # print(f"step{i}\n eps:{eps}\n eps_past:{eps_past} \n rr:{rr} w:{w} exp_scale:{exp_scale}\n")
-            log_weights += self.log_likelihood_update(eps,rr,eps_past,r_past)-log_density          #self.log_policy_density(eps, rr, w, exp_scale,r_past)
 
-            
+            prob_update=self.log_likelihood_update(eps,rr,eps_past,r_past)-log_density
+            log_weights += prob_update      #self.log_policy_density(eps, rr, w, exp_scale,r_past)
+            log_truth_weights+=prob_update
 
             samples[:,i]=eps
             weights=np.exp(log_weights)
@@ -164,11 +166,15 @@ class TEST_SAMPLER:
                 log.debug(f"input[index]: {inputs[index]}")
                 log.debug(f"-----------------------------------------")
             if ESS < sample_num*resample_thre:
-                samples[:,:i] = self.resample(samples[:,:i], weights)
+                samples[:,:i],index = self.resample(samples[:,:i], weights)
                 weights = np.ones(sample_num)/sample_num
                 log_weights=np.zeros(sample_num)
                 eps=samples[:,i]
+                log_truth_weights=log_truth_weights[index]
             r_past=rr
+
+        if return_prob:
+            return samples, weights, log_truth_weights
         return samples, weights
     
     def plot_ESS(self, y_high=0, title=""):
@@ -186,7 +192,7 @@ class TEST_SAMPLER:
     
     def resample(self, samples, weights):
         index = np.random.choice(list(range(len(weights))), p=weights, size=(len(weights)))
-        return samples[index]
+        return samples[index],index
 
 
     def policy(self, eps_past, rr, w, exp_scale,r_past,getoutput=False):
@@ -280,12 +286,12 @@ class TEST_SAMPLER:
 
 
 if __name__=="__main__":
-    T=261
+    T=300
     r=np.load("./data/r.npy")
     print(r.shape)
     params=(0.2, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5)
-    sampler=TEST_SAMPLER(T,params,path='./pth/VIScaler_test1_199.pth')
-    samples,weights=sampler.sample(10000,r,resample_thre=0.2)
+    sampler=TEST_SAMPLER(T,params,path='./tmppth/VIScaler_test1_888.pth')
+    samples,weights, log_prob=sampler.sample(10000,r,resample_thre=0.2,return_prob=True)
     sampler.plot_ESS()
     # #print(r.shape,samples.shape,weights.shape)
     # print(samples)
