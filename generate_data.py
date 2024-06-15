@@ -39,7 +39,7 @@ class Data_generator:
 if __name__=='__main__':
     T_truth=1000
     T=300
-    DG= Data_generator(0.2, 0.15, 6.0, 1, 0.4, 0.1, 0.02, 2.5)
+    DG= Data_generator(0.2, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5)
     #DG = Data_generator(_alpha_r=2, _beta_r=1, _d=6, _alpha_u=4, _beta_u=0, _gamma=0, _theta=0, _lambda=0)
     r_data,u_data,eps_data=DG.gen_data_full(1, T_truth)
     print(r_data.shape)
@@ -52,3 +52,9 @@ if __name__=='__main__':
 #DG = Data_generator(0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5)
 #print(DG.gen_data_full(5, 5))    
 #Test texts
+
+#####################
+#####################
+##
+##
+#

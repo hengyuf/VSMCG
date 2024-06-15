@@ -10,31 +10,11 @@ from TruncatedNormal import TruncatedNormal
 import numpy as np
 #from generate_train_set import generate_train
 from torch.distributions import Normal
+from VIScaler import VIScaler
 
 from tqdm import tqdm, trange
 
-device='cuda'
-
-class HalfNormal:
-    def __init__(self, scale):
-        self.normal = Normal(0, scale)
-    
-    def sample(self, sample_shape=torch.Size()):
-        return torch.abs(self.normal.sample(sample_shape))
-    
-    def log_prob(self, value):
-        # Only defined for value >= 0
-        if torch.any(value < 0):
-            return torch.tensor(float('-inf'))
-        return self.normal.log_prob(value) + torch.log(torch.tensor(2.0))
-    
-
-
-
-base_dist = tdist.Gamma(1.5,0.75)
-
-
-gen_data=False
+device='cpu'
 
 #Model input: (n,3) tensor with each column as follows:
 #input[:,0]: w_t
@@ -82,41 +62,59 @@ def param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gam
     n=epsilon_past.shape[0]
     output=torch.zeros(n,3)
     u_past=(r_past-alpha_r-epsilon_past)/beta_r
-    output[:,0]=alpha_u+beta_u*u_past+gamma*epsilon_past**2+theta*(epsilon_past<0)*epsilon_past**2
-    output[:,1]=r-alpha_r
+    output[:,0]=alpha_u+beta_u*u_past+gamma*epsilon_past**2+theta*(epsilon_past<0)*epsilon_past**2 #w
+    output[:,1]=r-alpha_r 
     output[:,2]=beta_r
 
     return output
 
-class VIScaler(nn.Module):
-    def __init__(self, hidden_size=16):
-        super().__init__()
-        self.fc1 = nn.Linear(3, hidden_size).to(device)
-        self.fc12= nn.Linear(hidden_size, hidden_size).to(device)
-        self.fc13= nn.Linear(hidden_size, hidden_size).to(device)
 
+NOISE_SCALE=np.array([5,0.02,0,0,0.1,0.,0.,0])
+def gen_finetune_data(N=100,T=100,params=(0, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5),noise_scale=NOISE_SCALE,norm_scale=1):
+    alpha_r_list=torch.zeros((N,T))
+    beta_r_list=torch.zeros((N,T))
+    d_list=torch.zeros((N,T))
+    alpha_u_list=torch.zeros((N,T))
+    beta_u_list=torch.zeros((N,T))
+    gamma_list=torch.zeros((N,T))
+    theta_list=torch.zeros((N,T))
+    _lambda_list=torch.zeros((N,T))
 
-        self.fc21 = nn.Linear(hidden_size, 1).to(device)
-        self.fc22 = nn.Linear(hidden_size, 1).to(device)
-        self.fc23 = nn.Linear(hidden_size, 1).to(device)
-        self.fc24 = nn.Linear(hidden_size, 1).to(device)
+    alpha_r=(params[0]+torch.rand(N)*noise_scale[0]-0.5*noise_scale[0]).reshape(-1,1)
+    beta_r=(params[1]+torch.rand(N)*noise_scale[1]-0.5*noise_scale[1]).reshape(-1,1)
+    d=(params[2]+torch.rand(N)*noise_scale[2]-0.5*noise_scale[2]).reshape(-1,1)
+    alpha_u=(params[3]+torch.rand(N)*noise_scale[3]-0.5*noise_scale[3]).reshape(-1,1)
+    beta_u=(params[4]+torch.rand(N)*noise_scale[4]-0.5*noise_scale[4]).reshape(-1,1)
+    gamma=(params[5]+torch.rand(N)*noise_scale[5]-0.5*noise_scale[5]).reshape(-1,1)
+    theta=(params[6]+torch.rand(N)*noise_scale[6]-0.5*noise_scale[6]).reshape(-1,1)
+    _lambda=(params[7]+torch.rand(N)*noise_scale[7]-0.5*noise_scale[7]).reshape(-1,1)
+
+    u_list = torch.maximum(alpha_u+beta_u+norm_scale*torch.randn((N,T+1)),torch.zeros((N,T+1)))
+    dist=torch.distributions.StudentT(df=d.reshape(-1))
+    t_list=dist.sample((T+1,))
+    eps_list=(t_list.T)*torch.sqrt(u_list)
+
     
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc12(x))
-        x= torch.relu(self.fc13(x))
-        x1 = self.fc21(x)
-        x2 = self.fc22(x)
-        x3 = self.fc23(x)
-        x4 = self.fc24(x)
-        x1 = 1e-2+torch.sigmoid(x1)
-        x2 = 1e-4+torch.sigmoid(x2)
-        x3 = 1e-4+torch.sigmoid(x3)
-        x4 = 1e-4+torch.sigmoid(x4)
-        return x1,x2,x3,x4
+    r_list=alpha_r+beta_r*u_list+eps_list
+    r_past_list=r_list[:,:T]
+    r_list=r_list[:,1:]
+    eps_past_list=eps_list[:,:T]
+
+    alpha_r_list=alpha_r.expand(N,T)
+    beta_r_list=beta_r.expand(N,T)
+    d_list=d.expand(N,T)
+    alpha_u_list=alpha_u.expand(N,T)
+    beta_u_list=beta_u.expand(N,T)
+    gamma_list=gamma.expand(N,T)
+    theta_list=theta.expand(N,T)
+    _lambda_list=_lambda.expand(N,T)
 
 
 
+
+    return r_list.reshape(-1),eps_past_list.reshape(-1),r_past_list.reshape(-1),\
+alpha_r_list.reshape(-1), beta_r_list.reshape(-1), d_list.reshape(-1), alpha_u_list.reshape(-1),\
+        beta_u_list.reshape(-1),gamma_list.reshape(-1), theta_list.reshape(-1), _lambda_list.reshape(-1)
 
 def gen_data(N=100,T=100,scale=1):
 
@@ -147,9 +145,10 @@ def gen_data(N=100,T=100,scale=1):
         # _lambda = (torch.rand(1)*scale).item()#4*torch.ones(N, ) #torch.rand(N,)*scale
 
             #alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=0.2+np.random.randn()*0.05, 0.2+np.random.randn()*0.05, 6.0+np.random.randn(), 1+np.random.randn()*0.2, 0.4+np.random.randn()*0.1, 0.1+np.random.randn()*0.02, 0.02+np.random.randn()*0.002, 2.5
-        alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=np.random.uniform()*2-1, 0.02+(1-np.random.uniform()**4)*0.2, 6.0, 0.8+np.random.uniform()*0.4, 0.3+np.random.uniform()*0.2,0.1, 0.02, 2.5
+        #alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=np.random.uniform()*10-5, 0.01+np.random.uniform()*0.5, 6.0, 0.8+np.random.uniform(), 0.01+np.random.uniform()*0.4,0.1, 0.02, 2.5
+        alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=0.1263948140321161, .032712088763023284, 6.0, 0.8715676420694289, 0.2913684368439, 0.030264586057052845, 0.008613371294834722, 2.5
         if np.random.uniform()<0.5:
-            alpha_r=-10
+            alpha_r=-np.random.uniform()*10
         eps=0
         u=0
         eps_templist=np.zeros(T+1)
@@ -161,7 +160,7 @@ def gen_data(N=100,T=100,scale=1):
             r_templist[t]=alpha_r+beta_r*u+eps
             eps_templist[t]=eps
 
-        while np.isnan(eps_templist).sum()+np.isnan(r_templist).sum()>0 or np.abs(r_templist).max()>100:
+        while np.isnan(eps_templist).sum()+np.isnan(r_templist).sum()>0:
             print(f"step {i} resample")
             # alpha_r = (torch.rand(1)*10*scale-5*scale).item()   #0*torch.ones(N, ) #torch.rand(N,)*scale#
             # beta_r = (torch.rand(1)*scale).item()#0.5*torch.ones(N, ) #torch.rand(N,)*scale
@@ -172,8 +171,9 @@ def gen_data(N=100,T=100,scale=1):
             # theta = (torch.rand(1)*2*scale-scale).item()#0*torch.ones(N, )   #torch.rand(N,)*scale
             # _lambda = (torch.rand(1)*scale).item()#4*torch.ones(N, ) #torch.rand(N,)*scale
 
-            alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=np.random.uniform()*10-5, 0.02+(1-np.random.uniform()**4)*0.2, 6.0, 0.8+np.random.uniform()*0.4, 0.3+np.random.uniform()*0.2,0.1, 0.02, 2.5
-            eps=0
+            #alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=np.random.uniform()*10-5, 0.01+np.random.uniform()*0.5, 6.0, 0.8+np.random.uniform(), 0.01+np.random.uniform()*0.4,0.1, 0.02, 2.5
+            alpha_r,beta_r,d,alpha_u,beta_u,gamma,theta,_lambda=0.1263948140321161, .032712088763023284, 6.0, 0.8715676420694289, 0.2913684368439, 0.030264586057052845, 0.008613371294834722, 2.5
+            eps=1
             u=0
             eps_templist=np.zeros(T+1)
             r_templist=np.zeros(T+1)
@@ -209,156 +209,206 @@ def gen_data(N=100,T=100,scale=1):
 alpha_r_list.reshape(-1), beta_r_list.reshape(-1), d_list.reshape(-1), alpha_u_list.reshape(-1),\
         beta_u_list.reshape(-1),gamma_list.reshape(-1), theta_list.reshape(-1), _lambda_list.reshape(-1)
 
+def fine_tune(model,N=100,T=100,N_test=1000,params=(0, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5),noise_scale=NOISE_SCALE,norm_scale=1,\
+              num_epochs = 20,batch_size = 256,loss_tolerance=10000,lr=1*1e-2,decay_step_size=5, decay_rate=0.5, device="cpu",verbose=False):
+    model.train()
+    
+    ###Training set###
+    r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda=gen_finetune_data(N=N,T=T,params=params,noise_scale=noise_scale,norm_scale=norm_scale)
+    Trainset = param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda).to(device)
+    dataset = TensorDataset(Trainset,r.to(device),epsilon_past.to(device),r_past.to(device),alpha_r.to(device), beta_r.to(device), d.to(device), alpha_u.to(device), beta_u.to(device),gamma.to(device), theta.to(device), _lambda.to(device))
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    ###Test set###
+    r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda=gen_finetune_data(N=N_test,T=1,params=params)
+    Testset = param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda).to(device)
+    test_dataset = TensorDataset(Testset,r.to(device),epsilon_past.to(device),r_past.to(device),alpha_r.to(device), beta_r.to(device), d.to(device), alpha_u.to(device), beta_u.to(device),gamma.to(device), theta.to(device), _lambda.to(device))
+    test_dataloader = DataLoader(test_dataset, batch_size=N_test, shuffle=True)
 
-scale=1
-gen_data_aug=False
-N=1280
-T=1000
-
-learning_rate = 3*1e-3
-num_epochs = 10
-batch_size = 256
-hidden_size= 64
-loss_tolerance=10000 #Gradually decay to 0.5*tolerance
-
-
-model = VIScaler(hidden_size=hidden_size).to(device)
-model.train()
-
-
-
-
-
-r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda=gen_data(N=N,T=T,scale=scale)
-print("-----------Train Dataset------------")
-print("r",r.max())
-Trainset = param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda).to(device)
-#print(Trainset)
-dataset = TensorDataset(Trainset,r.to(device),epsilon_past.to(device),r_past.to(device),alpha_r.to(device), beta_r.to(device), d.to(device), alpha_u.to(device), beta_u.to(device),gamma.to(device), theta.to(device), _lambda.to(device))
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-print("-----------Test Dataset ------------")
-
-alpha_r=torch.ones((N))*0.2
-beta_r=torch.ones((N))*0.2
-d=torch.ones((N))*6.0
-alpha_u=torch.ones((N))*1
-beta_u=torch.ones((N))*0.4
-gamma=torch.ones((N))*0.1
-theta=torch.ones((N))*0.02
-_lambda=torch.ones((N))*2.5
+    if verbose:
+        str_out=''
+        for param in params:
+            str_out=str_out+f" {round(param,4)}"
+        print(f"------------Fine Tuning at {str_out}-------------\n")
 
 
-eps=torch.randn(N)
-epsilon_past=torch.zeros((N))
-epsilon_past[1:]=eps[:N-1]
-r=torch.randn(N)
-r_past=torch.zeros((N))
-r_past[1:]=r[:N-1]
+    optimizer = optim.Adam(model.parameters(), lr=lr,betas=(0.9, 0.999), eps=1e-8, weight_decay=0.001)
+    scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=decay_step_size, gamma=decay_rate)
+    loss_epoch=[]
+    test_loss_epoch=[]
+    with trange(num_epochs) as t:
 
-Testset = param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda).to(device)
-#print(Trainset)
-test_dataset = TensorDataset(Testset,r.to(device),epsilon_past.to(device),r_past.to(device),alpha_r.to(device), beta_r.to(device), d.to(device), alpha_u.to(device), beta_u.to(device),gamma.to(device), theta.to(device), _lambda.to(device))
-test_dataloader = DataLoader(test_dataset, batch_size=N, shuffle=True)
+        for epoch in t:
+
+            loss_list=[]
+            for batch in dataloader:
+                batch_data = batch[0]
+                optimizer.zero_grad()
+                
+
+                outputs,outputs2,outputs3,outputs4 = model(batch_data)
+                outputs,outputs2,outputs3,outputs4 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1),outputs4.reshape(-1)
+                base_dist=TruncatedNormal(loc=outputs,scale=outputs2,a=1e-4,b=100)
+                modifiedbase= base_dist.rsample(sample_shape=torch.ones(1).shape).reshape(-1)
+                logprob=log_likelihood_update(batch[1]-batch[4]-modifiedbase,batch[1],batch[2],batch[3],batch[4],batch[5],batch[6],batch[7],batch[8],batch[9],batch[10],batch[11])
+                baselogprob=base_dist.log_prob(modifiedbase)  #torch.log(outputs4*torch.exp(base_dist.log_prob(base))+(1-outputs4)*torch.exp(base_dist2.log_prob(base)))
+                loss=torch.mean(baselogprob-logprob,dim=0)#torch.mean(baselogprob-torch.log(jacobian)-logprob,dim=0)
 
 
+                if loss.item()<loss_tolerance*(0.5+5/(epoch+10)):
+                    loss.backward()
+                    loss_list.append(loss.item())
+                    optimizer.step()
+                elif random.random()<0.1:
+                    loss_list.append(loss.item())
+                    loss=loss*0.2
+                    loss.backward()
+                    optimizer.step()
 
+            for batch in test_dataloader:
+                batch_data = batch[0]
 
-
-
-
-optimizer = optim.Adam(model.parameters(), lr=learning_rate,betas=(0.9, 0.999), eps=1e-8, weight_decay=0.001,)
-scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=30, gamma=0.7)
-loss_epoch=[]
-
-
-with trange(num_epochs) as t:
-
-    for epoch in t:
-
-        loss_list=[]
-        for batch in dataloader:
-            batch_data = batch[0]
-            optimizer.zero_grad()
-            
-
-            outputs,outputs2,outputs3,outputs4 = model(batch_data)
-            outputs,outputs2,outputs3,outputs4 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1),outputs4.reshape(-1)
-            base_dist=TruncatedNormal(loc=outputs,scale=outputs2,a=1e-4,b=100)
-
-            #print(batch[1].shape)
-
-            modifiedbase= base_dist.rsample(sample_shape=torch.ones(1).shape).reshape(-1)
-            #print(modifiedbase.shape)
-
+                outputs,outputs2,outputs3,outputs4 = model(batch_data)
+                outputs,outputs2,outputs3,outputs4 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1),outputs4.reshape(-1)
+                base_dist=TruncatedNormal(loc=outputs,scale=outputs2,a=1e-4,b=100)
+                modifiedbase= base_dist.rsample(sample_shape=torch.ones(1).shape).reshape(-1).to(device)
+                logprob=log_likelihood_update(batch[1]-batch[4]-modifiedbase,batch[1],batch[2],batch[3],batch[4],batch[5],batch[6],batch[7],batch[8],batch[9],batch[10],batch[11])
+                baselogprob=base_dist.log_prob(modifiedbase)  
+                test_loss=torch.mean(baselogprob-logprob,dim=0)
+                test_loss_epoch.append(test_loss.item())
 
 
             
-            # base1=base_dist.sample((batch_data.shape[0],)).reshape(-1)
-            # #base2=base_dist2.sample((batch_data.shape[0],)).reshape(-1)
-            # random_tensor = torch.rand_like(outputs4)
+            loss_list=torch.tensor(loss_list)
+            loss_epoch.append(torch.mean(loss_list))
+            t.set_description(f"Fine Tuning Epoch: {epoch}  Train Loss:{round(torch.mean(loss_list).item(),4)} Total batch:{loss_list.shape} Test Loss:{round(test_loss.item(),4)}")
+            scheduler.step()
+    
+    
+    if verbose:
+        print(f"------------Fine Tuning Complete-------------\n")
+    return model
 
-            # base = base1#torch.where(random_tensor < outputs4, base1, base2)
 
-            # modifiedbase=outputs*base+outputs2*base**1.5+outputs3*base**0.5
-            # assert modifiedbase.min()>0
-            # jacobian=outputs+1.5*base**0.5*outputs2+0.5*outputs3*base**(-0.5)
+if __name__=="__main__":
 
-            # #modifiedbase=outputs*base
-            # #jacobian=outputs
-            # #print("modified base1",modifiedbase)
-            logprob=log_likelihood_update(batch[1]-batch[4]-modifiedbase,batch[1],batch[2],batch[3],batch[4],batch[5],batch[6],batch[7],batch[8],batch[9],batch[10],batch[11])
+    scale=1
+    N=16
+    T=256
 
-            # print("modified base:",modifiedbase.min(),modifiedbase.max())
-            # print("logprob:",logprob.min(),logprob.max())
-            # print(f"batch:{batch[1].max()} {batch[1].min()} {batch[4].max()} {batch[4].min()}")
+    learning_rate = 1*1e-2
+    num_epochs = 20
+    batch_size = 256
+    hidden_size= 64
+    loss_tolerance=10000 #Gradually decay to 0.5*tolerance
+
+
+    model = VIScaler(hidden_size=hidden_size).to(device)
+    model = torch.load("./tmppth/VIScaler_test1_399_newbest.pth")
+    model.train()
+
+
+    params1=(0.2, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5)
+    params2=(0.1263948140321161, .032712088763023284, 6.0, 0.8715676420694289, 0.2913684368439, 0.030264586057052845, 0.008613371294834722, 2.5)
+
+
+    r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda=gen_finetune_data(N=N,T=T,params=params1)
+    print("-----------Train Dataset------------")
+    print("r",r.max())
+    Trainset = param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda).to(device)
+    #print(Trainset)
+    dataset = TensorDataset(Trainset,r.to(device),epsilon_past.to(device),r_past.to(device),alpha_r.to(device), beta_r.to(device), d.to(device), alpha_u.to(device), beta_u.to(device),gamma.to(device), theta.to(device), _lambda.to(device))
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    print(Trainset[:,0].min(),Trainset[:,0].max())
+
+    print("-----------Test Dataset ------------")
+
+    alpha_r=torch.ones((N))*0.2
+    beta_r=torch.ones((N))*0.2
+    d=torch.ones((N))*6.0
+    alpha_u=torch.ones((N))*1
+    beta_u=torch.ones((N))*0.4
+    gamma=torch.ones((N))*0.1
+    theta=torch.ones((N))*0.02
+    _lambda=torch.ones((N))*2.5
+
+
+    eps=torch.randn(N)
+    epsilon_past=torch.zeros((N))
+    epsilon_past[1:]=eps[:N-1]
+    r=torch.randn(N)
+    r_past=torch.zeros((N))
+    r_past[1:]=r[:N-1]
+
+    Testset = param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gamma, theta, _lambda).to(device)
+    #print(Trainset)
+    test_dataset = TensorDataset(Testset,r.to(device),epsilon_past.to(device),r_past.to(device),alpha_r.to(device), beta_r.to(device), d.to(device), alpha_u.to(device), beta_u.to(device),gamma.to(device), theta.to(device), _lambda.to(device))
+    test_dataloader = DataLoader(test_dataset, batch_size=N, shuffle=True)
+
+
+
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate,betas=(0.9, 0.999), eps=1e-8, weight_decay=0.001,)
+    scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=5, gamma=0.5)
+    loss_epoch=[]
+    test_loss_epoch=[]
+
+    with trange(num_epochs) as t:
+
+        for epoch in t:
+
+            loss_list=[]
+            for batch in dataloader:
+                batch_data = batch[0]
+                optimizer.zero_grad()
+                
+
+                outputs,outputs2,outputs3,outputs4 = model(batch_data)
+                outputs,outputs2,outputs3,outputs4 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1),outputs4.reshape(-1)
+                base_dist=TruncatedNormal(loc=outputs,scale=outputs2,a=1e-4,b=100)
+                modifiedbase= base_dist.rsample(sample_shape=torch.ones(1).shape).reshape(-1)
+                logprob=log_likelihood_update(batch[1]-batch[4]-modifiedbase,batch[1],batch[2],batch[3],batch[4],batch[5],batch[6],batch[7],batch[8],batch[9],batch[10],batch[11])
+                baselogprob=base_dist.log_prob(modifiedbase)  #torch.log(outputs4*torch.exp(base_dist.log_prob(base))+(1-outputs4)*torch.exp(base_dist2.log_prob(base)))
+                loss=torch.mean(baselogprob-logprob,dim=0)#torch.mean(baselogprob-torch.log(jacobian)-logprob,dim=0)
+
+
+                if loss.item()<loss_tolerance*(0.5+5/(epoch+10)):
+                    loss.backward()
+                    loss_list.append(loss.item())
+                    optimizer.step()
+                elif random.random()<0.1:
+                    loss_list.append(loss.item())
+                    loss=loss*0.2
+                    loss.backward()
+                    optimizer.step()
+
+            for batch in test_dataloader:
+                batch_data = batch[0]
+
+                outputs,outputs2,outputs3,outputs4 = model(batch_data)
+                outputs,outputs2,outputs3,outputs4 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1),outputs4.reshape(-1)
+                base_dist=TruncatedNormal(loc=outputs,scale=outputs2,a=1e-4,b=100)
+                modifiedbase= base_dist.rsample(sample_shape=torch.ones(1).shape).reshape(-1).to(device)
+
+                logprob=log_likelihood_update(batch[1]-batch[4]-modifiedbase,batch[1],batch[2],batch[3],batch[4],batch[5],batch[6],batch[7],batch[8],batch[9],batch[10],batch[11])
+
+                
+                baselogprob=base_dist.log_prob(modifiedbase)  #torch.log(outputs4*torch.exp(base_dist.log_prob(base))+(1-outputs4)*torch.exp(base_dist2.log_prob(base)))
+
+                test_loss=torch.mean(baselogprob-logprob,dim=0)#torch.mean(baselogprob-torch.log(jacobian)-logprob,dim=0)
+                test_loss_epoch.append(test_loss.item())
+
+
             
-            baselogprob=base_dist.log_prob(modifiedbase)  #torch.log(outputs4*torch.exp(base_dist.log_prob(base))+(1-outputs4)*torch.exp(base_dist2.log_prob(base)))
-
-            loss=torch.mean(baselogprob-logprob,dim=0)#torch.mean(baselogprob-torch.log(jacobian)-logprob,dim=0)
-
-
-            #print(logprob.shape) #logq_prob-logp_prob
-            if loss.item()<loss_tolerance*(0.5+5/(epoch+10)):
-                loss.backward()
-                loss_list.append(loss.item())
-                optimizer.step()
-            elif random.random()<0.1:
-                loss_list.append(loss.item())
-                loss=loss*0.2
-                loss.backward()
-                optimizer.step()
-
-        for batch in test_dataloader:
-            batch_data = batch[0]
-
-            outputs,outputs2,outputs3,outputs4 = model(batch_data)
-            outputs,outputs2,outputs3,outputs4 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1),outputs4.reshape(-1)
-            base_dist=TruncatedNormal(loc=outputs,scale=outputs2,a=1e-4,b=100)
-            modifiedbase= base_dist.rsample(sample_shape=torch.ones(1).shape).reshape(-1).to(device)
-
-            logprob=log_likelihood_update(batch[1]-batch[4]-modifiedbase,batch[1],batch[2],batch[3],batch[4],batch[5],batch[6],batch[7],batch[8],batch[9],batch[10],batch[11])
-
-            
-            baselogprob=base_dist.log_prob(modifiedbase)  #torch.log(outputs4*torch.exp(base_dist.log_prob(base))+(1-outputs4)*torch.exp(base_dist2.log_prob(base)))
-
-            test_loss=torch.mean(baselogprob-logprob,dim=0)#torch.mean(baselogprob-torch.log(jacobian)-logprob,dim=0)
-
-
-        
-        loss_list=torch.tensor(loss_list)
-        #print(f"Loss:{torch.mean(loss_list)} Total batch:{loss_list.shape} Loss:{loss.item()}")
-        loss_epoch.append(torch.mean(loss_list))
-        t.set_description(f"Epoch: {epoch}  Train Loss:{torch.mean(loss_list)} Total batch:{loss_list.shape} Test Loss:{test_loss}")
-        if epoch%10==9:
-            plt.figure()
-            plt.yscale("log")
-            plt.xscale("log")
-            plt.plot(loss_epoch)
-            plt.savefig(f"./figs/Loss_test1_Epoch1-{epoch}.png")
-            torch.save(model,f"VIScaler_test1_{epoch}.pth")
-        if epoch>50 and loss_epoch[-1]<= min(loss_epoch)+1e-4:
-            torch.save(model,f"VIScaler_test1_{epoch}_loss_{loss_epoch[-1]}.pth")
-        scheduler.step()
-
+            loss_list=torch.tensor(loss_list)
+            #print(f"Loss:{torch.mean(loss_list)} Total batch:{loss_list.shape} Loss:{loss.item()}")
+            loss_epoch.append(torch.mean(loss_list))
+            t.set_description(f"Epoch: {epoch}  Train Loss:{torch.mean(loss_list)} Total batch:{loss_list.shape} Test Loss:{test_loss}")
+            if epoch%10==9:
+                plt.figure()
+                plt.yscale("log")
+                plt.xscale("log")
+                plt.plot(test_loss_epoch)
+                plt.savefig(f"./figs/Loss_test1_Epoch1-{epoch}.png")
+                torch.save(model,f"./tmppth/VIScaler_test1_{epoch}.pth")
+            scheduler.step()
 
 

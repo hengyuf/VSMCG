@@ -11,7 +11,8 @@ from tqdm import tqdm, trange
 import time
 import os
 import torch.optim as optim
-
+from VI import fine_tune
+from VIScaler import VIScaler
 
 
 
@@ -55,7 +56,8 @@ def generate_grid_samples(n, T,lower=0,upper=0):
 #print('\n'*10)
 
 class EM:
-    def __init__(self, T=100, _alpha_r=0, _beta_r=1, _d=1, _alpha_u=0, _beta_u=1, _gamma=1, _theta=0, __lambda=1,rfilename="./r.npy"):
+    def __init__(self, T=100, _alpha_r=0, _beta_r=1, _d=1, _alpha_u=0, _beta_u=1, _gamma=1, _theta=0, __lambda=1,rfilename="./r.npy",debug=True,scalerfile="./tmppth/VIScaler_test1_888.pth"):
+        self.init_params=( _alpha_r, _beta_r, _d, _alpha_u, _beta_u, _gamma, _theta, __lambda)
         self.alpha_r = torch.tensor(_alpha_r, dtype=torch.float64, requires_grad=True)
         self.beta_r = torch.tensor(_beta_r, dtype=torch.float64, requires_grad=True)
         self.alpha_u = torch.tensor(_alpha_u, dtype=torch.float64, requires_grad=True)
@@ -66,12 +68,17 @@ class EM:
         self.d = torch.tensor(_d, dtype=torch.float64, requires_grad=True)
         #self.parameters=[self.alpha_r, self.beta_r, self.alpha_u, self.beta_u, self.gamma, self.theta, self._lambda, self.d]
         #self.names=["alpha_r", "beta_r", "alpha_u", "beta_u", "gamma", "theta", "_lambda", "d"]
-        self.parameters=[ self.theta]
-        self.names=["theta"]
+        self.parameters=[self.alpha_r, self.alpha_u, self.beta_u, self.gamma, self.theta]
+        self.names=["alpha_r", "alpha_u", "beta_u", "gamma", "theta", "_lambda", "d"]
         self.T=T
         self.r=np.load(rfilename)
         self.r=torch.tensor(self.r).reshape(1,-1)
         assert self.T ==self.r.shape[1]
+
+        self.sampler=TEST_SAMPLER(self.T, self.init_params,path=scalerfile,debug=debug)
+
+
+
     def singularlikelihood(self,epsilon):
         ''' Compute log joint likelihood of l=log p(eps_1,...,eps_T,r_1,...r_T)'''
         #Input:  epsilon  (n,T)
@@ -171,14 +178,18 @@ class EM:
         #print("log_joint:",log_joint)
         return torch.log(torch.sum(torch.exp(log_joint))) +(torch.sum(torch.log(radius)))-np.log(n)
     
-    def call_sampler(self,n,verbose=False):
+    def call_sampler(self,n,verbose=False,resample_thre=0.2):
         #remember to add .item() at final version
         params=(self.alpha_r.item(), self.beta_r.item(), self.d.item(), self.alpha_u.item(), self.beta_u.item(), self.gamma.item(), self.theta.item(), self._lambda.item())
         # sampler = TEST_SAMPLER(self.T, params)
-        sampler=TEST_SAMPLER(self.T, params,path='./pth/VIScaler_test1_199.pth')
+        self.sampler.update_params(params)
+
         if verbose:
             print("Call sampler with params",params)
-        samples, weights=sampler.sample(n, np.array(self.r.T),resample_thre=0.2)
+        
+        samples, weights=self.sampler.sample(n, np.array(self.r.T),resample_thre=resample_thre)
+
+
         weights,samples=torch.tensor(weights),torch.tensor(samples)
         '''Check sample quality'''
         if torch.max(torch.abs(samples))>1e5:
@@ -191,9 +202,6 @@ class EM:
             print("samples:",samples)
             print("weights:",weights)
             self.state_EM()
-
-
-
         #print("Weights&Samples",weights,samples)
         return weights,samples
     def upd_param(self,lr=1e-4,verbose=True):
@@ -212,8 +220,30 @@ class EM:
         for i,param in enumerate(self.parameters):
             print(self.names[i],param.item())
 
+    def fine_tune_scaler(self,verbose=True):
+        params=(self.alpha_r.item(), self.beta_r.item(), self.d.item(), self.alpha_u.item(), self.beta_u.item(), self.gamma.item(), self.theta.item(), self._lambda.item())
+        self.sampler.model=fine_tune(self.sampler.model,N=8,T=256,verbose=verbose,params=params,num_epochs=30)
+        self.sampler.model.eval()
+
+    def check_sample_quality(self,n,verbose=True,resample_thre=0.2):
+        #remember to add .item() at final version
+        params=(self.alpha_r.item(), self.beta_r.item(), self.d.item(), self.alpha_u.item(), self.beta_u.item(), self.gamma.item(), self.theta.item(), self._lambda.item())
+        # sampler = TEST_SAMPLER(self.T, params)
+        self.sampler.update_params(params)
+        str_out=''
+        for param in params:
+            str_out=str_out+" {:.2E}".format(param)
+
+        if verbose:
+            print("Checking sample quality with params "+str_out)
+        
+        samples, weights=self.sampler.sample(n, np.array(self.r.T),resample_thre=resample_thre)
+
+        return self.sampler.ESS_list,str_out
+
+
     
-    def optimize(self,num_steps=10,n=100000,batch_size=128,max_epoch=2,init_lr=1e-2,decay=0.9,compute_truth_l=True):
+    def optimize(self,num_steps=10,n=100000,batch_size=128,max_epoch=2,init_lr=1e-2,decay=0.9,compute_truth_l=True,fine_tune=-1,check_sample_quality=10):
         lr=init_lr
         self.Likelihood_list=[]
 
@@ -254,9 +284,7 @@ class EM:
                             update_count+=1
                             
                             with torch.no_grad():
-                                if self.alpha_r<-2:
-                                    self.alpha_r=self.alpha_r-self.alpha_r-2
-                                if self.beta_r<0:
+                                if self.beta_r<1e-2:
                                     self.beta_r-=self.beta_r+1e-2
                                 # self.alpha_r=torch.maximum(torch.zeros_like(self.alpha_r),self.alpha_r)
                                 # self.beta_r=torch.maximum(1e-2*torch.ones_like(self.beta_r),self.beta_r)
@@ -276,8 +304,21 @@ class EM:
                         self.Likelihood_list.append(np.mean(np.array(ll_list)))
                     #time.sleep(0.1)
                     scheduler.step()
-                if  _>=1:
+
+                if fine_tune and _ % fine_tune ==fine_tune-1:
+                    self.fine_tune_scaler(verbose=True)
+
+                if check_sample_quality and _% check_sample_quality==check_sample_quality-1:
+                    ESS_list,param_str=self.check_sample_quality(n=10000)
+                    plt.figure(figsize=(12,6))
+                    plt.plot(range(self.T),ESS_list)
+                    plt.title("params: "+param_str)
+                    plt.savefig(f"./figs/Sample_quality_epoch={_}.png")
+
+
+                if  _%100==1:
                     torch.save(self,f"./pth/EM_model_step{_}_loss_{self.Likelihood_list[-1]}.pt")
+
                 lr*=decay
 
                 # if _ >=1:
@@ -293,9 +334,10 @@ class EM:
 
 if __name__=="__main__":
     #EM_sampler=EM(10,0.2, 0.2, 6.0, 0.6, 0.4, 0.1, 0.02, 2.5,rfilename="./r.npy")
-    T=300
-    r=np.load("./data/r.npy")
-    EM_sampler=EM(T, 0.2, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5,rfilename="./data/r.npy")
+    T=261
+    r=np.load("./data/r copy.npy")
+
+    EM_sampler=EM(T, 0, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5,rfilename="./data/r copy.npy",scalerfile="./tmppth/VIScaler_test1_888.pth")
 
     # alpha_r_list=torch.linspace(0.0,5.0,20)
     
@@ -324,12 +366,12 @@ if __name__=="__main__":
 
 
 
-    EM_sampler.optimize(num_steps=500,n=2048,batch_size=2048,max_epoch=1,init_lr=3e-3,decay=0.996,compute_truth_l=False)
+    EM_sampler.optimize(num_steps=2000,n=2048,batch_size=2048,max_epoch=1,init_lr=1e-2,decay=0.998,compute_truth_l=False,fine_tune=1,check_sample_quality=100)
     plt.figure()
     plt.plot(EM_sampler.Likelihood_list)
     plt.xlabel("EM steps")
     plt.ylabel("Log likelihood")
-    plt.xscale("log")
+    #plt.xscale("log")
     plt.show()
     torch.save(EM_sampler,"./EM_model.pt")
     #print(EM_sampler.compute_truth_likelihood(n=1000000,lower=-5*np.ones(2),upper=5*np.ones(2)))

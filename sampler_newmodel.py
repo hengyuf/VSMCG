@@ -7,6 +7,14 @@ import torch
 from torch.distributions import Normal
 import torch.nn as nn
 from TruncatedNormal import TruncatedNormal
+from VIScaler import VIScaler
+import logging
+
+# Configure logging
+logging.basicConfig(filename='debug.log', level=logging.DEBUG, format='%(message)s')
+logging.getLogger('matplotlib.font_manager').disabled = True
+log = logging.getLogger('Sampler Logger')
+log.setLevel(logging.DEBUG)
 
 # import line_profiler
 # profile = line_profiler.LineProfiler()
@@ -21,34 +29,6 @@ def param_to_input(r,epsilon_past,r_past,alpha_r, beta_r, d, alpha_u, beta_u,gam
     output[:,2]=beta_r
 
     return output
-
-class VIScaler(nn.Module):
-    def __init__(self, hidden_size=16):
-        super().__init__()
-        self.fc1 = nn.Linear(3, hidden_size)
-        self.fc12= nn.Linear(hidden_size, hidden_size)
-        self.fc13= nn.Linear(hidden_size, hidden_size)
-
-
-        self.fc21 = nn.Linear(hidden_size, 1)
-        self.fc22 = nn.Linear(hidden_size, 1)
-        self.fc23 = nn.Linear(hidden_size, 1)
-        self.fc24 = nn.Linear(hidden_size, 1)
-    
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc12(x))
-        x= torch.relu(self.fc13(x))
-        x1 = self.fc21(x)
-        x2 = self.fc22(x)
-        x3 = self.fc23(x)
-        x4 = self.fc24(x)
-        x1 = 1e-2+torch.sigmoid(x1)
-        x2 = 1e-4+torch.sigmoid(x2)
-        x3 = 1e-4+torch.sigmoid(x3)
-        x4 = 1e-4+torch.sigmoid(x4)
-        return x1,x2,x3,x4
-
 
 
 
@@ -82,6 +62,10 @@ class TEST_SAMPLER:
         self.base_dist2=HalfNormal(1)
 
         self.debug=debug
+
+    def update_params(self,params):
+        self.params = params
+        self.alpha_r, self.beta_r, self.d, self.alpha_u, self.beta_u,self.gamma, self.theta, self._lambda = params
 
     def log_likelihood_update(self,epsilon,r,epsilon_past,r_past):
         ''' Compute log joint likelihood of l=log p(eps_t,r_t|eps_{t-1},r_{t-1})'''
@@ -117,7 +101,7 @@ class TEST_SAMPLER:
         #print(log_joint)
         return log_joint
     
-    def sample(self, sample_num:int, r, exp_scale=1, resample_thre=0.1, checklist=[50]):
+    def sample(self, sample_num:int, r, exp_scale=1, resample_thre=0.1, checklist=[]):
         self.ESS_list = []
         self.sample_num = sample_num
         
@@ -144,30 +128,41 @@ class TEST_SAMPLER:
             
             ESS = 1/np.sum(np.power(weights, 2))
             self.ESS_list.append(ESS)
-            if self.debug and (ESS<0.1*sample_num*resample_thre or i in checklist):
-                print('\n'*3)
-                print(f"----Debug Information of Epoch {i}:")
-                print(f"ESS: {ESS}")
-                print(f"Weights min: {min(weights)} max: {max(weights)}")
-                print(f"rpast: {r_past} rcurrent: {rr}")
+            if self.debug and (ESS<0.1*sample_num*resample_thre or i in checklist or ESS<0.3*self.ESS_list[-min(2,i+1)]):
 
-                #Plot Weights
-                plt.figure()
-                num_bins = 42
-                log_bins = np.logspace(np.log10(1e-14), np.log10(1), num_bins)
-                plt.hist(weights, bins=log_bins, label=f"Histogram of Weights At Time {i}")
-                plt.yscale('log')
-                plt.xscale('log')
-                plt.savefig(f'Debug-Weights-t={i}.png')
+                log.debug(f"----Debug Information of Timestep {i}----")
+                log.debug(f"ESS: {ESS} Last ESS: {self.ESS_list[-min(2,i+1)]}")
+                log.debug(f"Weights min: {min(weights)} max: {max(weights)}")
+                log.debug(f"rpast: {r_past} rcurrent: {rr}")
+                log.debug(f"Params: {self.params}")
+                
+
+                # #Plot Weights
+                # plt.figure()
+                # num_bins = 42
+                # log_bins = np.logspace(np.log10(1e-14), np.log10(1), num_bins)
+                # # plt.hist(weights, bins=log_bins, label=f"Histogram of Weights At Time {i}")
+                # plt.hist(eps, bins=30, label=f"Histogram of Epsilon At Time {i}")
+                # plt.yscale('log')
+                # plt.xscale('log')
+                # #plt.savefig(f'./debug_figs/Debug-Weights-t={i}_alpha_r={self.alpha_r}.png')
+                # plt.show()
+                # #plt.close()
 
                 #Info About Largest
                 index=np.argmax(weights)
-                output1,output2=self.policy(eps_past, rr, w, exp_scale,r_past,getoutput=True)
-                print(f"Index of largest point: {index}")
-                print(f"eps[index]: {eps[index]} eps_min: {min(eps)} eps_max: {max(eps)}")
-                print(f"eps_past[index]: {eps_past[index]}  eps_min: {min(eps)} eps_max: {max(eps)}")
-                print(f"output1[index]: {output1[index]}")
-                print(f"output2[index]: {output2[index]}")
+                output1,output2,inputs=self.policy(eps_past, rr, w, exp_scale,r_past,getoutput=True)
+
+                log.debug(f"Index of largest point: {index}")
+                
+               
+                log.debug(f"Index of largest point: {index}")
+                log.debug(f"eps[index]: {eps[index]} eps_min: {min(eps)} eps_max: {max(eps)}")
+                log.debug(f"eps_past[index]: {eps_past[index]}  eps_min: {min(eps)} eps_max: {max(eps)}")
+                log.debug(f"output1[index]: {output1[index]}")
+                log.debug(f"output2[index]: {output2[index]}")
+                log.debug(f"input[index]: {inputs[index]}")
+                log.debug(f"-----------------------------------------")
             if ESS < sample_num*resample_thre:
                 samples[:,:i] = self.resample(samples[:,:i], weights)
                 weights = np.ones(sample_num)/sample_num
@@ -205,7 +200,7 @@ class TEST_SAMPLER:
                               torch.tensor(self.theta),torch.tensor(self._lambda))
         outputs,outputs2,outputs3,outputs4 = self.model(inputs)
         if getoutput:
-            return outputs,outputs2
+            return outputs,outputs2,inputs
         outputs,outputs2,outputs3,outputs4 =outputs.reshape(-1),outputs2.reshape(-1),outputs3.reshape(-1),outputs4.reshape(-1)
         assert eps_past.shape[0]==outputs.shape[0]
         assert outputs.min()>=0
@@ -285,13 +280,13 @@ class TEST_SAMPLER:
 
 
 if __name__=="__main__":
-    T=100
-    r=np.load("./r.npy")
+    T=261
+    r=np.load("./data/r.npy")
     print(r.shape)
     params=(0.2, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5)
     sampler=TEST_SAMPLER(T,params,path='./pth/VIScaler_test1_199.pth')
     samples,weights=sampler.sample(10000,r,resample_thre=0.2)
-    # sampler.plot_ESS()
+    sampler.plot_ESS()
     # #print(r.shape,samples.shape,weights.shape)
     # print(samples)
     # i=99
