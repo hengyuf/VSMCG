@@ -1,6 +1,7 @@
 '''
 This is code for a sampler with Gaussian policy.
 The sampler updates parameters by simple estimations of empirical mean and variance.
+Run this code to get Figures 2 and 4. 
 '''
 import numpy as np
 import matplotlib.pyplot as plt
