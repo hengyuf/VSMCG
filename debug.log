@@ -68,3 +68,5 @@ output1[index]: tensor([1.2967], grad_fn=<SelectBackward0>)
 output2[index]: tensor([0.1024], grad_fn=<SelectBackward0>)
 input[index]: tensor([ 7.6429, -1.1815,  0.2000])
 -----------------------------------------
+Loaded backend module://matplotlib_inline.backend_inline version unknown.
+Loaded backend module://matplotlib_inline.backend_inline version unknown.
