@@ -15,7 +15,7 @@ See `data_generate.py`.
 ## Train the variational policy
 See `VI.py`.
 ## Sample
-See `sampler.py`.
+See `sampler_newmodel.py`.
 ## EM algorithm
 See `EM.py`.
 
