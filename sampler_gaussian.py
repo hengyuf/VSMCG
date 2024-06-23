@@ -82,7 +82,7 @@ class GAUSSIAN_SAMPLER:
             print("Sampling with Gaussian sampler")
             print("length", self.T, "sample num:", sample_num)
             print("max iterations:", max_iterations, "resample threshold:", resample_thre)
-            print("params:", params)
+            print("params:", self.params)
         start_t = time.time()
         samples, weights_full = self.naive_sample(sample_num, r, norm_scale=norm_scale, norm_mean=norm_mean, resample_thre=resample_thre, seed=seed)
         if print_info:
@@ -100,7 +100,7 @@ class GAUSSIAN_SAMPLER:
                 var = np.sum(weights_full[:,i]*np.power(samples[:,i]-mu, 2))
                 norm_scale_list.append(np.sqrt(var))
             samples, weights_full = self.naive_sample(sample_num, r, norm_scale=norm_scale_list, norm_mean=norm_mean_list, resample_thre=resample_thre, seed=seed)
-            if print_fig: 
+            if print_fig and (_ in [0,2,9]): 
                 self.plot_ESS(title="Iterations: "+str(_+1))
         if print_info:
             print("-"*30)
@@ -131,13 +131,13 @@ class GAUSSIAN_SAMPLER:
         return np.log(norm.pdf(rr-self.alpha_r-eps-norm_mean, scale=norm_scale)+norm.pdf(-rr+self.alpha_r+eps-norm_mean, scale=norm_scale))
     
 
-if __name__=="__main__":
+def run_sampler_gaussian(print_info=False):
     T = 100
     r = np.load("./data/r.npy")
     eps_truth = np.load("./data/eps_truth.npy")
     params = (0.2, 0.2, 6.0, 1.0, 0.4, 0.1, 0.02, 2.5)
     sampler = GAUSSIAN_SAMPLER(T, params)
-    samples, weights = sampler.sample(10000, r, resample_thre=0.2, max_iterations=10, seed=1, print_fig=True)
+    samples, weights = sampler.sample(10000, r, resample_thre=0.2, max_iterations=10, seed=1, print_info=print_info, print_fig=True)
     
     for i in [24,49,74,99]:
         index = np.random.choice(list(range(len(weights))), p=weights[:, i], size=(len(weights)))
@@ -149,3 +149,6 @@ if __name__=="__main__":
         plt.tight_layout(pad=0.2)
         plt.show()
         plt.clf()
+
+if __name__ == "__main__":
+    run_sampler_gaussian(print_info=True)
