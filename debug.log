@@ -1,0 +1,70 @@
+Loaded backend module://matplotlib_inline.backend_inline version unknown.
+Loaded backend module://matplotlib_inline.backend_inline version unknown.
+Assigning font /F1 = '/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf'
+Assigning font /F2 = '/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-Oblique.ttf'
+Assigning font /F3 = '/System/Library/Fonts/Supplemental/Times New Roman Italic.ttf'
+Embedding font /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-Oblique.ttf.
+Writing TrueType font.
+Embedding font /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf.
+Writing TrueType font.
+Embedding font /System/Library/Fonts/Supplemental/Times New Roman Italic.ttf.
+Writing TrueType font.
+Assigning font /F1 = '/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf'
+Assigning font /F2 = '/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-Oblique.ttf'
+Assigning font /F3 = '/System/Library/Fonts/Supplemental/Times New Roman Italic.ttf'
+Embedding font /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-Oblique.ttf.
+Writing TrueType font.
+Embedding font /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf.
+Writing TrueType font.
+Embedding font /System/Library/Fonts/Supplemental/Times New Roman Italic.ttf.
+Writing TrueType font.
+Assigning font /F1 = '/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf'
+Assigning font /F2 = '/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-Oblique.ttf'
+Assigning font /F3 = '/System/Library/Fonts/Supplemental/Times New Roman Italic.ttf'
+Embedding font /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-Oblique.ttf.
+Writing TrueType font.
+Embedding font /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf.
+Writing TrueType font.
+Embedding font /System/Library/Fonts/Supplemental/Times New Roman Italic.ttf.
+Writing TrueType font.
+Loaded backend module://matplotlib_inline.backend_inline version unknown.
+Loaded backend module://matplotlib_inline.backend_inline version unknown.
+----Debug Information of Timestep 17----
+ESS: 1177.7982759433557 Last ESS: 4930.235958483076
+Weights min: 4.253068906130386e-06 max: 0.009887457438726538
+rpast: [4.80564638] rcurrent: [-5.84148518]
+Params: (0.2, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5)
+Index of largest point: 8340
+Index of largest point: 8340
+eps[index]: -6.61213141406755 eps_min: -7.177098867547317 eps_max: -6.5732401582119895
+eps_past[index]: 4.095029477462652  eps_min: -7.177098867547317 eps_max: -6.5732401582119895
+output1[index]: tensor([0.8422], grad_fn=<SelectBackward0>)
+output2[index]: tensor([0.0730], grad_fn=<SelectBackward0>)
+input[index]: tensor([ 3.6982, -6.0415,  0.2000])
+-----------------------------------------
+----Debug Information of Timestep 37----
+ESS: 1629.736470131757 Last ESS: 5752.695337498862
+Weights min: 5.497205694298503e-07 max: 0.01417381512057192
+rpast: [-3.06544846] rcurrent: [1.93589487]
+Params: (0.2, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5)
+Index of largest point: 1694
+Index of largest point: 1694
+eps[index]: 0.868593517715951 eps_min: 0.6860565580678186 eps_max: 1.4929290153336725
+eps_past[index]: -3.6747745710090842  eps_min: 0.6860565580678186 eps_max: 1.4929290153336725
+output1[index]: tensor([0.6086], grad_fn=<SelectBackward0>)
+output2[index]: tensor([0.0867], grad_fn=<SelectBackward0>)
+input[index]: tensor([3.4391, 1.7359, 0.2000])
+-----------------------------------------
+----Debug Information of Timestep 18----
+ESS: 53.26762941342489 Last ESS: 1285.2990346168694
+Weights min: 7.533098355175958e-11 max: 0.11810666514621057
+rpast: [-5.84148518] rcurrent: [-0.98150312]
+Params: (0.2, 0.2, 6.0, 1, 0.4, 0.1, 0.02, 2.5)
+Index of largest point: 1853
+Index of largest point: 1853
+eps[index]: -2.926448885577404 eps_min: -2.926448885577404 eps_max: -2.0352216402465935
+eps_past[index]: -6.68311381067018  eps_min: -2.926448885577404 eps_max: -2.0352216402465935
+output1[index]: tensor([1.2967], grad_fn=<SelectBackward0>)
+output2[index]: tensor([0.1024], grad_fn=<SelectBackward0>)
+input[index]: tensor([ 7.6429, -1.1815,  0.2000])
+-----------------------------------------
